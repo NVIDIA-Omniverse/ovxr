@@ -1,0 +1,36 @@
+[project]
+name = "minimal-xr"
+version = "0.1.0"
+description = "Minimal ovxr Python example: load a USD stage and run a VR or AR session"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    # Released dependency builds from deps/ovxr_deps.yaml. The OVXR pin is
+    # stamped with its exact build number when the first package is published.
+    "ovrtx==0.6.0.1791947691",
+    "ovstage==0.3.0.1791986420",
+    "ovxr==0.1.0.5842",
+]
+
+[tool.uv]
+# Windows reports x86-64 as AMD64 in PEP 508 platform_machine markers.
+# Wheel tags still use win_amd64; keep those concepts separate.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[tool.uv.sources]
+ovrtx = { index = "nvidia" }
+ovstage = { index = "nvidia" }
+ovxr = { index = "nvidia" }
