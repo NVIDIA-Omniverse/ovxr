@@ -18,6 +18,8 @@ These documentation-only skills teach integration with distributed OVXR SDK arti
 | Identify supported OVXR seams for application composition and GPU resources | [composition-integration](composition-integration/SKILL.md) |
 | Validate OVXR SDK contracts separately from runtime and application proof | [validation](validation/SKILL.md) |
 | Integrate a separately supplied OpenXR runtime with OVXR | [runtime-adapters](runtime-adapters/SKILL.md) |
+| Build UI that is occluded by scene geometry | [scene-occluded-ui](scene-occluded-ui/SKILL.md) |
+| Build shared XR/desktop picking, dragging and undoable tools | [spatial-interaction](spatial-interaction/SKILL.md) |
 
 ## Authority
 
@@ -29,3 +31,20 @@ OVXR owns OpenXR lifecycle, frame coordination, primary submission and capture. 
 
 
 These skills follow the NVIDIA license supplied with the SDK. See the parent LICENSE for the applicable terms.
+
+
+## Runnable examples and evidence
+
+This is the single customer OVXR skills catalog. The original SDK integration
+skills remain the foundation; application skills add UI and interaction policy.
+The [sample-to-skill map](../examples/README.md#skills-by-sample) links source
+code, README adaptation guidance and prompt context (FYI), within this catalog.
+See [coverage](COVERAGE.md) for the code and automated checks behind each skill,
+including explicit gaps. Test linkage is not proof that every prose instruction
+or every newly generated application has been exercised.
+
+For UI, choose placement (head-, controller- or world-relative) independently
+from occlusion. Composition integration covers application OpenXR layers;
+scene-occluded UI adds color/depth composition and scene-aware input. The [composition-layers example](../examples/python/composition-layers/README.md)
+provides a diagnostic head/world overlay; wrist menus and interactive overlay
+widgets remain separate application work.

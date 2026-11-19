@@ -1,0 +1,36 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+    subLayers = [@xr-room.usda@]
+)
+
+over "World"
+{
+    # Looking across the room from the right, with the PiP panel out of view.
+    def Camera "PipCamera"
+    {
+        double3 xformOp:translate = (3, 2.2, -0.8)
+        float3 xformOp:rotateXYZ = (-16, 105, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+        float focalLength = 50
+        float horizontalAperture = 20.955
+        float verticalAperture = 15.71625
+        float2 clippingRange = (0.05, 100)
+    }
+}
+def Scope "Render"
+{
+    def RenderVar "PipColor"
+    {
+        string sourceName = "LdrColor"
+    }
+    def RenderProduct "PipObserver"
+    {
+        rel camera = </World/PipCamera>
+        rel orderedVars = [</Render/PipColor>]
+        int2 resolution = (640, 480)
+        token omni:rtx:rendermode = "RealTimePathTracing"
+    }
+}

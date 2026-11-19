@@ -1,0 +1,142 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+    subLayers = [@xr-room.usda@]
+)
+
+over "World"
+{
+    over "AnimatedCube" (active = false) {}
+    over "MovingRig" (active = false) {}
+    over "TeleportPad" (active = false) {}
+    over "LeftLandmark" (active = false) {}
+    over "RightLandmark" (active = false) {}
+
+    # These size-0.6 cubes match the model's analytic colliders.
+    def Cube "BluePart" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 0.6
+        double3 xformOp:translate = (-1, 0.65, 0.45)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/Blue>
+    }
+    def Cube "AmberPart" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 0.6
+        double3 xformOp:translate = (1, 0.65, 0.45)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/Orange>
+    }
+    # The app composes each bar's world transform from the selected object's pose.
+    # The cage is decoration, not a pick target. Bars sit outside the cube's faces.
+    def Xform "Selection" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double3 xformOp:translate = (0, -100, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/SelectionGreen>
+
+        def Cube "X00"
+        {
+            double size = 1
+            double3 xformOp:translate = (0, -0.32, -0.32)
+            double3 xformOp:scale = (0.66, 0.012, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "X01"
+        {
+            double size = 1
+            double3 xformOp:translate = (0, -0.32, 0.32)
+            double3 xformOp:scale = (0.66, 0.012, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "X10"
+        {
+            double size = 1
+            double3 xformOp:translate = (0, 0.32, -0.32)
+            double3 xformOp:scale = (0.66, 0.012, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "X11"
+        {
+            double size = 1
+            double3 xformOp:translate = (0, 0.32, 0.32)
+            double3 xformOp:scale = (0.66, 0.012, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Y00"
+        {
+            double size = 1
+            double3 xformOp:translate = (-0.32, 0, -0.32)
+            double3 xformOp:scale = (0.012, 0.66, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Y01"
+        {
+            double size = 1
+            double3 xformOp:translate = (-0.32, 0, 0.32)
+            double3 xformOp:scale = (0.012, 0.66, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Y10"
+        {
+            double size = 1
+            double3 xformOp:translate = (0.32, 0, -0.32)
+            double3 xformOp:scale = (0.012, 0.66, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Y11"
+        {
+            double size = 1
+            double3 xformOp:translate = (0.32, 0, 0.32)
+            double3 xformOp:scale = (0.012, 0.66, 0.012)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Z00"
+        {
+            double size = 1
+            double3 xformOp:translate = (-0.32, -0.32, 0)
+            double3 xformOp:scale = (0.012, 0.012, 0.66)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Z01"
+        {
+            double size = 1
+            double3 xformOp:translate = (-0.32, 0.32, 0)
+            double3 xformOp:scale = (0.012, 0.012, 0.66)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Z10"
+        {
+            double size = 1
+            double3 xformOp:translate = (0.32, -0.32, 0)
+            double3 xformOp:scale = (0.012, 0.012, 0.66)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+        def Cube "Z11"
+        {
+            double size = 1
+            double3 xformOp:translate = (0.32, 0.32, 0)
+            double3 xformOp:scale = (0.012, 0.012, 0.66)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+    }
+
+    over "Materials"
+    {
+        def Material "SelectionGreen"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/SelectionGreen/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.3, 0.9, 0.04)
+                float inputs:reflection_roughness_constant = 0.7
+                token outputs:out
+            }
+        }
+    }
+}

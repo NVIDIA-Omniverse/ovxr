@@ -19,7 +19,7 @@ Requires a matched distributed OVXR, OVRTX and OVStage SDK and a supported OpenX
 
 The public README and header describe the composition APIs below. Match headers, Python bindings, loader and runtime binaries; the prerelease submit signature changed without changing the dylib ABI version.
 
-OVXR owns the scene projection and final OpenXR frame submission. C callers use `ovxr_submit_frame(ctx, plan, submit_desc, out)`; Python uses `submit_frame(plan, additional_layers=...)`. A null or zero-initialized descriptor with zero additional-layer count submits only the scene. Application projection, quad or supported extension layers are appended after the scene in array order. The runtime's maxLayerCount includes OVXR's scene layer. No-render or invalid-view frames omit all layers; CUDA readback remains scene-only.
+OVXR owns the scene projection and final OpenXR frame submission. C callers use `ovxr_submit_frame(ctx, plan, submit_desc, out)`; Python uses `submit_frame(plan, additional_layers=...)`. A null or zero-initialized descriptor with zero additional-layer count submits only the scene. Application projection, quad or supported extension layers are appended after the scene in array order by default. Set C `submit_desc.replace_scene_layer` or Python `replace_scene_layer=True` to submit the application layers instead of the scene; replacement requires at least one application layer. The runtime's `maxLayerCount` includes OVXR's scene layer only when it is retained, so replacement frees that layer slot. Replacement changes submission only: bind still renders the scene, and readback still captures the original OVRTX output. No-render or invalid-view frames omit all layers.
 
 `ovxr_get_vulkan_handles` and Python `Context.get_vulkan_handles()` expose the borrowed session Vulkan binding and enabled external-memory/semaphore handle types. Python returns a VulkanHandles value or None before the session exists. The application may import images from its own same-GPU Vulkan device and copy into application-owned OpenXR swapchains. Query format/usage support and serialize borrowed queue access with OVXR.
 
@@ -31,4 +31,10 @@ Core additional quads lack per-fragment scene depth. A custom primary-depth comp
 
 ## Examples
 
-For a spatial quad, obtain the shared OpenXR and Vulkan bindings, create an application swapchain, complete and release its rendered image, and pass the live layer to submit. Include the scene layer when checking the runtime layer limit.
+For a spatial quad, obtain the shared OpenXR and Vulkan bindings, create an application swapchain, complete and release its rendered image, and pass the live layer to submit. Include the scene layer when checking the runtime layer limit unless `replace_scene_layer` is enabled.
+
+
+## Examples and validation
+
+Use [composition-layers](../../examples/python/composition-layers/README.md#adapting-this-sample) for an independent head/world quad and [ovui-panel](../../examples/python/ovui-panel/README.md#adapting-this-sample) for scene-depth composition. Both link runnable source, tests and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#composition-integration) for the automated checks associated with this guidance.

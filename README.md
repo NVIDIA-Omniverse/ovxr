@@ -14,14 +14,91 @@ The Python wheel includes the bindings, OVXR native libraries and OpenXR loader.
 It depends on the matching OVRTX and OVStage wheels. An OpenXR runtime must be
 installed separately.
 
-OVXR 0.1 provides Windows x86_64 and Linux x86_64 packages.
+OVXR provides Windows x86_64 and Linux x86_64 packages.
 Linux aarch64 packages are coming soon.
+
+## Compatibility
+
+OVXR 0.2 targets **OVRTX 0.7 and OVStage 0.4**. Use the matching SDK builds:
+release packages record exact dependency versions, while source checkouts use
+development ranges. Rebuild native consumers with the matching headers and
+update Python bindings and native libraries together.
+
+See the [0.2 changelog](CHANGELOG.md#020---2026-11-17) for release highlights and
+the [0.1 to 0.2 migration guide](docs/MIGRATION.md) for typed handles, signed
+ordinals, runtime startup, and application-stepped frame loops. OVXR remains
+a pre-release API; a shared major version does not promise compatibility
+between SDK builds.
 
 ## Data Collection
 
-OVXR collects anonymous initialization data by default to help improve OVXR. Collection is optional and can be disabled without affecting OVXR functionality. To opt out, set the environment variable `OVX_PHONE_HOME_OPT_OUT=1` before launching your application.
+OVXR collects anonymous initialization data by default to help improve OVXR. Collection is optional and can be disabled without affecting OVXR functionality. To opt out, set the environment variable `NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1` before launching your application.
 
 More information is available at [Data Collection & Use](https://github.com/NVIDIA-Omniverse/ovxr/blob/main/TELEMETRY.md).
+
+## Observing OpenXR events
+
+Register `Context.set_openxr_event_callback(callback)` or
+`ovxr_set_openxr_event_callback(context, callback, user_data)` before driving
+the frame loop. OVXR delivers every event it consumes, including internally
+handled session/loss events and extension events, once in runtime order.
+Observation follows internal handling and also occurs when handling fails.
+Do not compete with OVXR by calling `xrPollEvent` directly on its instance.
+
+Delivery is synchronous on the calling thread, including during teardown.
+Serialize registration/replacement with context operations; pass `None`/`NULL`
+to unregister. Context calls from its observer are rejected. The event buffer
+and any runtime-owned pointees are borrowed for the callback duration. Python
+provides `OpenXrEvent(type, data)` with copied bytes; decode and copy pointed-to
+data during the callback. Reference-space change times and poses are preserved.
+Ordinary Python exceptions are contained and reported as warnings. Process-control
+exceptions explicitly raised inside the callback, such as `KeyboardInterrupt`
+and `SystemExit`, are re-raised after the outer Python call completes native
+cleanup; an interrupted `begin_frame` cancels its returned plan before raising.
+For `render_frame` and `warm_up`, the exception retains the native return tuple
+as `ovxr_outcome` and exposes `ordinal_sealed` so callers can reconcile their
+application ordinal. Asynchronous Ctrl+C delivery is not guaranteed inside a
+ctypes callback: applications needing reliable SIGINT handling must arrange it
+outside the callback. A throwing native
+observer is disabled without disrupting OVXR's handling.
+
+## Build your own sample with an AI assistant
+
+Start with the **[sample gallery](examples/gallery/README.md)** to see what each
+example does before running it. The gallery includes screenshots, before/after
+comparisons and links to source, run instructions and adaptation guidance.
+
+Use the single [OVXR skills catalog](skills/README.md) for SDK integration and
+application guidance. The [sample READMEs](examples/README.md#skills-by-sample) combine those
+skills with runnable Python/C++ source, adaptation guidance and
+[validation coverage](skills/COVERAGE.md).
+OVUI samples start with Python. Give your coding assistant the relevant skills,
+adaptation guide, scene and matched SDKs. Sample READMEs retain prompt context as FYI, with
+historical excerpts and reconstructed instructions labeled separately. Use the
+[source reproduction and evaluation guide](examples/VALIDATION.md#source-reproduction-and-generation-evaluation)
+when reproducing checked-in code or evaluating a generated application.
+
+## Vulkan requirements
+
+Vulkan frame submission requires an NVIDIA RTX-capable GPU with CUDA external
+memory interop and exportable timeline semaphores. Timeline semaphores must be
+available through Vulkan 1.2 or `VK_KHR_timeline_semaphore`, with the timeline
+feature enabled on the session device. Their external handles must be
+exportable as opaque Win32 handles on Windows or opaque file descriptors on
+Linux, and importable by CUDA. RTX hardware alone does not establish these
+driver and runtime capabilities.
+
+OVXR validates timeline export support during Vulkan device initialization and
+fails with `OVXR_ERROR_OPENXR` when the required capabilities are unavailable.
+CUDA import failures also fail handoff initialization. Use an NVIDIA driver
+and OpenXR runtime that support these capabilities. OVXR does not fall back to
+CPU-synchronized or binary-semaphore CUDA-to-Vulkan handoff.
+
+CUDA writes signal a timeline semaphore asynchronously, and Vulkan waits on
+that value before consuming the image. Resource reuse, error recovery, and
+legacy OpenXR swapchain release can still require host waits; this requirement
+does not guarantee that every frame operation is nonblocking. Windows D3D12
+submission uses a shared fence and does not require Vulkan timeline semaphores.
 
 ## Python quick start
 
@@ -41,14 +118,19 @@ ctx = ovxr.Context(ovxr.ContextDesc(
     ovrtx_renderer=renderer,
     ovstage=stage,
     application_name="my-xr-app",
-    display_mode=ovxr.DisplayMode.STEREO,
+    display_mode=ovxr.DisplayMode.AUTO,
     session_mode=ovxr.SessionMode.VR,
     create_render_products=True,
     enable_frame_readback=True,
     readback_render_product_index=0,
 ))
 
-# 3. Render + submit each frame and optionally consume the latest color capture.
+# 3. Optional: render once before the first frame. ovRTX's first step (shader
+#    compilation, scene loading) can take seconds; run outside an OpenXR frame,
+#    it does not make the runtime throttle the frames that follow.
+ctx.warm_up()
+
+# 4. Render + submit each frame and optionally consume the latest color capture.
 while running:
     ctx.render_frame(delta_time_seconds)
     frame = ctx.acquire_frame()
@@ -58,17 +140,56 @@ while running:
 ctx.destroy()
 ```
 
+### Python logging
+
+After initializing OVRTX (for example, by creating `ovrtx.Renderer`), install a
+callback before creating the OVXR context to capture its startup diagnostics:
+
+```python
+def on_log(severity, timestamp, message):
+    print(f"{timestamp:.3f} [{severity.name}] {message}")
+
+ovxr.set_log_callback(on_log, severity=ovxr.LogSeverity.INFO)
+try:
+    # Create/use the OVXR context here, while its borrowed renderer is alive.
+    ...
+finally:
+    ovxr.set_log_callback(None)
+```
+
+The callback receives a `LogSeverity`, a timestamp in seconds since the Unix
+epoch, and an owned Python string that remains valid after it returns. The
+default threshold is `WARNING`; supported levels are `VERBOSE`, `INFO`,
+`WARNING`, `ERROR`, and `NONE` (suppress all delivery).
+
+There is one callback per process for OVXR's `omni.ovxr` channel. Installing a
+new one replaces the previous one and leaves OVRTX/OVStage callbacks independent.
+Invocations are serialized and may run on a background thread if the host enables
+asynchronous logging or the logging system defers delivery. Keep callbacks short;
+avoid re-entering context operations or depending on the emitting thread's local
+state. Callback exceptions are printed to stderr and suppressed. A callback may
+replace or clear itself; clearing from another thread waits for the current
+invocation to finish. There is no OVXR flush API.
+
+The bindings retain the callable while native delivery can use it. Clearing
+restores OVXR's prior channel level but resets the shared source threshold to
+inherit the global level; reapply any host-defined source threshold afterward.
+Use matching updated Python and native packages: the bindings require the
+`ovxr_set_log_callback` symbol.
+
 ### OVStage ordinal admission policy
 
-OVStage applies one ordinal admission policy per process, fixed by the first
-process reference. OVXR 0.1 supports `NONDECREASING`, the default, and
+OVStage applies one ordinal admission policy per process. The first reference
+selects it; a different policy can be selected after all stages are destroyed
+and all successful initialization calls are matched by shutdown calls.
+OVXR supports `NONDECREASING`, the default, and
 `FLOOR_ONLY`. It does not support `STRICTLY_INCREASING`, because OVXR writes
 some attributes more than once at a single ordinal; `ovxr.Context` creation
 (`ovxr_create` in C) fails when the stage's process selected that policy.
-Support is planned for OVXR 0.2.
+Support is planned for a future release.
 
-Keep the default, or select `NONDECREASING` before anything else in the process
-creates or initializes OVStage:
+Keep the default, or select `NONDECREASING` or `FLOOR_ONLY` before anything else
+in the process creates or initializes OVStage:
 
 ```python
 stage = ovstage.Stage("my-xr-app", config=ovstage.StageConfig(
@@ -76,10 +197,44 @@ stage = ovstage.Stage("my-xr-app", config=ovstage.StageConfig(
 ))
 ```
 
-In C, pass `ovstage_config_entry_runtime_default_ordinal_admission_policy(OVSTAGE_ORDINAL_ADMISSION_NONDECREASING)`
-to `ovstage_initialize` before the first `ovstage_create_instance`.
+In C, wrap the entry in a configuration and initialize before creating a stage.
+Pair every successful initialization with shutdown after destroying the stages:
+
+```c
+ovstage_config_entry_t entry =
+    ovstage_config_entry_runtime_default_ordinal_admission_policy(
+        OVSTAGE_ORDINAL_ADMISSION_NONDECREASING);
+ovstage_config_t config = {0};
+config.entries = &entry;
+config.entry_count = 1;
+ovstage_api_status_t result = ovstage_initialize(&config);
+if (result != OVSTAGE_OK) {
+    return result;
+}
+/* Create and use stages here; destroy them before shutdown. */
+ovstage_shutdown();
+```
 
 ### Frame readback ownership and lifetime
+
+In OVXR-stepped mode, a successful renderable `bind_frame` exposes the completed
+OVRTX result through `plan.step_result` for read-only access through `ovrtx_fetch_results` and
+`ovrtx_map_render_var_output`, including the eye's `XRDepth` output. OVXR retains
+ownership: finish reads and unmap all outputs before submit/cancel, and never
+destroy the result. The handle is zero before bind and after consumption.
+
+The [OVUI panel sample](examples/python/ovui-panel/README.md) copies that color
+and depth into application-owned images, depth-tests its UI, and submits its
+own projection through `additional_layers` with `replace_scene_layer=True`,
+because it already contains the scene. It requires unfoveated stereo and
+REQUIRED depth. The sample uses synchronous host staging across graphics devices;
+production applications should profile and optimize their own transfers.
+`acquire_frame()` reads the renderer's scene, not application composition layers.
+
+The [scene inspector](examples/python/scene-inspector/README.md) builds on this
+bridge with object selection, property editing and shared undo/redo. Its
+[customer adaptation guide](examples/python/scene-inspector/README.md#adapting-this-sample) explains how to adapt the
+model, scene and controls for another application.
 
 `Context.acquire_frame()` returns an `ovxr.Frame` on success, or `None` when no
 capture is available. The wrapper copies `width`, `height`, `pitch_bytes`,
@@ -87,14 +242,22 @@ capture is available. The wrapper copies `width`, `height`, `pitch_bytes`,
 metadata remains safe to inspect even after the frame expires.
 
 `Frame.device_ptr` is different: it is a borrowed, read-only CUDA device pointer
-owned by OVXR. Do not write to or free it. OVXR double-buffers captures, so the
-pointer for sequence `N` expires when capture `N + 2` can begin, and every
+owned by OVXR. Do not write to or free it. OVXR triple-buffers captures, so the
+pointer for sequence `N` expires when capture `N + 3` can begin, and every
 pointer expires when its `Context` is destroyed. The Python context enforces a
 safe, conservative boundary: the second subsequent `render_frame()` or
 `submit_frame()` call expires the wrapper at call entry, even if that call later
 does not produce a capture. If acquisition overlaps a capture-capable call, the
 in-flight call counts as the first one. Observing sequence `N + 2` through
 another `acquire_frame()` also expires it.
+
+Capture completion and mapping retirement run on the render thread during frame
+begin, submission, and cancellation. Acquisition only returns the latest published
+view; it never polls CUDA, calls OVRTX, or waits for a concurrent capture's cleanup.
+If frame calls stop, pending resources remain until the next frame call or context
+destruction. While a copy is pending, new captures are skipped and the last completed
+view remains available. Use `predicted_display_time_ns` to correlate the image
+with its producing frame rather than the frame that publishes it.
 
 Check `frame.is_valid` for diagnostics and retrieve the pointer through
 `frame.device_ptr`; expired access raises `ovxr.FrameExpiredError`. Validity can
@@ -112,8 +275,15 @@ quad, or supported extension layers after the OVRTX scene. The application owns
 the layer data, swapchains, and GPU work; OVXR owns frame submission. No-render
 frames omit all layers, and CUDA readback remains scene-only.
 
+Set `replace_scene_layer=true` to submit the provided layers instead of the
+OVRTX scene. This requires at least one application layer and is useful when an
+application composes a complete image from the borrowed bound-frame outputs.
+It changes layer submission only; bind still renders the scene, and OVXR still
+owns the renderer outputs and frame loop. Ordinary appended overlays remain the
+default.
+
 Zero-initialize `ovxr_submit_desc_t`; a null descriptor or a zero
-additional-layer count submits only the scene. The changed `ovxr_submit_frame`
+additional-layer count with replacement disabled submits only the scene. The changed `ovxr_submit_frame`
 signature changes the pre-release API without changing the dylib ABI version:
 rebuild callers and use matching headers, Python bindings, loader, and runtime
 binaries. The candidate ABI has not shipped and may change before GA.
@@ -281,8 +451,8 @@ context operation, and `Context.destroy()` must not overlap any call.
 
 ## Application render products in the bound frame
 
-OVXR owns the frame's single OVRTX step: `bind_frame()` publishes the frame's
-Stage writes, seals the ordinal and steps the renderer. Applications extend
+By default, OVXR owns the frame's single OVRTX step: `bind_frame()` publishes
+the frame's Stage writes, seals the ordinal and steps the renderer. Applications extend
 that frame in two ways, neither of which steps the renderer or ends the OpenXR
 frame themselves (composition layers are covered above):
 
@@ -298,7 +468,9 @@ frame themselves (composition layers are covered above):
   `plan.step_result` borrows the bound OVRTX step result (the step has already
   completed). Use the `ovrtx` package's `fetch_results()` /
   `map_render_var_output()` / `unmap_render_var_output()` on it, unmap before
-  `submit_frame()` or `cancel_frame()`, and never destroy it.
+  `submit_frame()`, `cancel_frame()`, or context destruction, and never destroy
+  the borrowed result. Both `plan.step_result` and `plan.render_products` expire
+  at context destruction even if their fields remain nonzero.
 
 `render_frame()` and the implicit-bind `begin_frame() -> submit_frame()` loop
 are unchanged and scene-only.
@@ -313,7 +485,61 @@ step_result=...)`, waiting for and destroying it afterwards. This mode needs an
 explicit `bind_frame()` (`render_frame()` and the implicit bind are rejected),
 and a nonzero `step_result` is rejected outside it.
 
+### Auxiliary sensors between XR frames
+
+In application-stepped mode, `begin_frame()` starts or polls an internal
+`xrWaitFrame` call and returns `NOT_READY` while the wait is pending. The
+first call for each frame normally returns `NOT_READY`; it is not a failure
+or an owning frame plan. Keep servicing the application and poll again.
+The default OVXR-stepped mode still waits synchronously.
+
+To run auxiliary sensors during that wait, use application-owned stage
+ordinals and serialize publication with the renderer's stage reads. Keep the
+eye products in every step's render-product set to retain their history, but
+publish signed `int32` `omni:sensor:frameLimit = 0` on their **camera prims**
+before every step without a renderable bound XR frame. This includes pending
+polls, no-render frames, and steps after cancellation. Polling, submission, and
+cancellation do not pause the cameras for you.
+
+A successful renderable `bind_frame()` publishes the current eye poses and
+`frameLimit = -1` to resume them. Update and step OVRTX at `plan.render_ordinal`
+over `plan.render_products`, pass the resulting typed handle to submission,
+then finish and destroy the application-owned result. A camera cut or expired
+scene-transform history may require `ovrtx_clear_history()` before resuming.
+
+### Split-frame ownership during teardown
+
+`ContextDesc.max_frames_in_flight` (C: `ovxr_desc_t::max_frames_in_flight`)
+limits unresolved plans to 1 through 64 (`OVXR_MAX_FRAMES_IN_FLIGHT` in C).
+Zero selects the default of one. `ovxr_create` rejects larger native values
+with `OVXR_ERROR` before allocating a context or its frame registry.
+
+A successful `begin_frame()` gives the caller one owning plan. Keep that plan
+until submit consumes it or cancel releases it; do not copy its owning frame
+handle or overwrite an unresolved plan. Validation failures with a live context
+leave the plan available for correction or cancellation. After submission accepts
+ownership, every return path consumes the plan and clears its handles.
+
+Destroying the context drains its OVXR-owned frame work and discards any open
+OpenXR frame before releasing Stage and session resources. It invalidates the
+plan's borrowed render products and step result, but leaves the caller's frame
+handle for final disposal. A later bind returns `ERROR` and leaves this detached
+plan intact; submit returns `ERROR` and consumes it; cancel consumes it without
+using the former context. In Python, call `ctx.cancel_frame(plan)` after
+`ctx.destroy()` to release a retained plan; C callers may pass `NULL` as the
+context to `ovxr_cancel_frame()`. Dispose every plan before unloading OVXR.
+Application-stepped results stay application-owned: complete and release those
+results independently, before destroying their borrowed renderer or Stage.
+
 ## Display selection
+
+OVXR probes for a head-mounted display first. If the runtime reports
+`XR_ERROR_FORM_FACTOR_UNSUPPORTED`, it retries with a handheld display; this
+supports runtimes such as CloudXR serving an iPad. `FORM_FACTOR_UNAVAILABLE`
+instead means the supported device is not connected yet and remains a wait
+condition. `check_openxr_runtime()` uses the same distinction before a context
+or renderer exists. Use `AUTO` when the application should support either a
+headset or a mono handheld display.
 
 `DisplayMode.AUTO` prefers OpenXR primary stereo and falls back to primary mono
 when stereo is unavailable. `DisplayMode.MONO` and `DisplayMode.STEREO` select

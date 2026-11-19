@@ -67,65 +67,8 @@ macro(ovstage_fetch)
     if (ovstage_FOUND)
         message(STATUS "found ovstage at: ${ovstage_DIR}")
     else()
-        set(FETCHCONTENT_QUIET FALSE)
-
-        # Override FetchContent's base directory to share large deps among
-        # examples. Uses the directory where ovstage.cmake lives so all examples
-        # share the same _deps. If copying this project to your own workspace,
-        # delete this line or override it.
-        if(NOT DEFINED CACHE{FETCHCONTENT_BASE_DIR})
-            set(FETCHCONTENT_BASE_DIR "${_OVSTAGE_CMAKE_DIR}/_deps" CACHE PATH "Shared FetchContent directory")
-        endif()
-
-        # Platform-specific package selection. Each SHA256 verifies the pinned
-        # OVStage SDK archive for that platform.
-        if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-            set(OVSTAGE_PACKAGE_SYSTEM "windows-x86_64")
-            set(OVSTAGE_HASH "007cd7ef776415c95342985fcf60ba89aa4222a07c914fdd314acb860e0b95a5")
-        elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-            if (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-                set(OVSTAGE_PACKAGE_SYSTEM "manylinux_2_35_aarch64")
-                set(OVSTAGE_HASH "14d8815694779799768480eaded48ae3c401ab128eca7e18ea2c3f30e385a307")
-            elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-                set(OVSTAGE_PACKAGE_SYSTEM "manylinux_2_35_x86_64")
-                set(OVSTAGE_HASH "922a64c3583040ea3ab3262c0e95aa4ac642bef8676b43a02fa262ea14adc387")
-            else()
-                message(FATAL_ERROR "Unsupported system: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
-            endif()
-        else()
-            message(FATAL_ERROR "Unsupported system: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
-        endif()
-
-        include(FetchContent)
-
-        # test override: consume a local package
-        if(NOT OVSTAGE_LOCAL_PACKAGE AND DEFINED ENV{OVSTAGE_LOCAL_PACKAGE})
-            set(OVSTAGE_LOCAL_PACKAGE "$ENV{OVSTAGE_LOCAL_PACKAGE}")
-        endif()
-        if(OVSTAGE_LOCAL_PACKAGE)
-            message(STATUS "ovstage: using local package ${OVSTAGE_LOCAL_PACKAGE}")
-            FetchContent_Declare(
-                ovstage
-                DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-                URL "${OVSTAGE_LOCAL_PACKAGE}"
-            )
-        else()
-        FetchContent_Declare(
-            ovstage
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-            URL "https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.${OVSTAGE_PACKAGE_SYSTEM}.zip"
-            URL_HASH SHA256=${OVSTAGE_HASH}
-        )
-
-        endif()
-
-        FetchContent_MakeAvailable(ovstage)
-
-        # Make ovstage findable by find_package (ships lib/cmake/ovstage/ovstageConfig.cmake)
-        list(APPEND CMAKE_PREFIX_PATH ${ovstage_SOURCE_DIR})
-
-        find_package(ovstage REQUIRED)
-
+        include("${_OVSTAGE_CMAKE_DIR}/ovxr.cmake")
+        ovxr_fetch_dependency(ovstage)
     endif()
 endmacro()
 
@@ -144,7 +87,7 @@ endmacro()
 #
 #  * DYNAMIC (ovstage::ovstage). ovstage ships an import lib (ovstage.lib) for
 #    ovstage.dll and has no "binary root" config (ovstage_instance_desc_t carries
-#    only a name). Unlike the static loader we cannot tell ovstage where its
+#    no package root). Unlike the static loader we cannot tell ovstage where its
 #    package is - ovstage.dll self-locates its bundled carb plugins (omni.fabric /
 #    usdrt.* / gpucompute / ...) RELATIVE TO THE DIRECTORY ovstage.dll IS LOADED
 #    FROM, i.e. it expects a sibling plugins/ tree. Preserve that relative layout
@@ -157,8 +100,10 @@ endmacro()
 #   - Model #1: ovrtx's runtime stays under the single `ovrtx/` link, so <exe>/plugins
 #     is free and we junction ovstage's own plugins/ closure there.
 #   - Model #2: ovrtx replicates its plugins/ at the exe root, so <exe>/plugins is
-#     ovrtx's; ovstage.dll shares that single tree (which carries ovstage's closure)
-#     and we do NOT junction a second, colliding plugins/.
+#     an executable-owned root with linked subdirectories. ovstage.dll shares that
+#     tree for the common Fabric/USD closure, but OVStage's population plugin
+#     ships only in the ovstage SDK, so we copy it there without modifying either
+#     source package.
 #
 # Single usd_ms (why delay-load): ovstage.dll STATICALLY imports ov_25.11usd_ms.dll
 # and tbb12.dll (see `dumpbin /dependents ovstage.dll`), which the OS loader would
@@ -204,8 +149,8 @@ function(ovstage_setup_runtime TARGET_NAME)
     endif()
 
     # --- Dynamic ovstage::ovstage below ---
-    # Under ovrtx model #2 the exe root's plugins/ is ovrtx's; ovstage shares it.
-    # Only under model #1 do we junction ovstage's own plugins/ beside the exe.
+    # Under ovrtx model #2 ovstage shares the exe root's plugins/ and adds its
+    # population plugin. Only under model #1 do we junction ovstage's own plugins/.
     _ovrtx_target_uses_static_loader(${TARGET_NAME} _ovstage_static_model)
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -232,10 +177,22 @@ function(ovstage_setup_runtime TARGET_NAME)
         )
 
         # Junction the data-only usd schemas always (unique name), and ovstage's own
-        # plugins/ closure only under model #1 (model #2 shares ovrtx's plugins/).
+        # plugins/ closure only under model #1. Model #2 shares ovrtx's plugins/,
+        # which lacks the population plugin ovstage.dll loads from
+        # <module dir>/plugins, so copy that one file into the exe-owned root.
         set(OVSTAGE_RUNTIME_DIRS ovstage_usd_schemas)
         if(_ovstage_static_model)
             list(APPEND OVSTAGE_RUNTIME_DIRS plugins)
+        elseif(EXISTS "${OVSTAGE_BINARY_DIR}/plugins/ovstage.population.plugin.dll")
+            # Older ovstage SDKs ship population as plugins/usdrt, which the
+            # ovrtx plugins/ tree already provides.
+            add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${OVSTAGE_BINARY_DIR}/plugins/ovstage.population.plugin.dll"
+                    "$<TARGET_FILE_DIR:${TARGET_NAME}>/plugins/ovstage.population.plugin.dll"
+                COMMENT "Copying the OVStage population plugin beside the shared runtime"
+                VERBATIM
+            )
         endif()
         foreach(DIR ${OVSTAGE_RUNTIME_DIRS})
             if(EXISTS "${OVSTAGE_BINARY_DIR}/${DIR}")

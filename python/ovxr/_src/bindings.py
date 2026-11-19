@@ -35,6 +35,7 @@ import ctypes
 import operator
 import os
 import sys
+import traceback
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -51,16 +52,21 @@ from ctypes import (
     c_void_p,
 )
 from enum import IntEnum
+from itertools import count
 from pathlib import Path
 from threading import Lock
 from typing import List, Optional
+
+from ovstage import ORDINAL_MIN, ORDINAL_MAX
 
 # ovxr's frame plan embeds ovrtx struct types (ovxr.h itself `#include`s
 # <ovrtx/ovrtx.h>). Import them from the ovrtx package rather than redefining,
 # so the two bindings can never disagree on the shared ABI.
 from ovrtx._src.bindings import (
+    OVRTX_INVALID_STEP_RESULT_HANDLE,
     OVRTX_LOADER_LIB_NAME,
     ovrtx_render_product_set_t,
+    ovrtx_step_result_handle_t,
 )
 
 OVXR_LOADER_LIB_NAME: str = "ovxr-dynamic.dll" if sys.platform.startswith("win") else "libovxr-dynamic.so"
@@ -93,6 +99,16 @@ class Result(IntEnum):
         return unknown
 
 
+class LogSeverity(IntEnum):
+    """``ovxr_log_severity_t`` thresholds; ``NONE`` suppresses all delivery."""
+
+    VERBOSE = -2
+    INFO = -1
+    WARNING = 0
+    ERROR = 1
+    NONE = 3
+
+
 def result_name(code: int) -> str:
     """Return the ``OVXR_*`` name for an ``ovxr_result_t`` code."""
     return f"OVXR_{Result(code).name}"
@@ -106,16 +122,16 @@ class StageOrdinalMode(IntEnum):
 
 
 def check_ordinal(value: int) -> int:
-    """Bound a caller-supplied stage ordinal to the ``c_uint64`` field behind it.
+    """Bound a caller-supplied stage ordinal to the ``c_int64`` field behind it.
 
-    ctypes never raises on an out-of-range value — declared argtypes wrap mod
-    ``2**64`` — so this is the only place a negative or over-wide ordinal can
-    fail instead of silently coercing. ``operator.index`` (not ``int()``) so
-    floats and other truncating types are rejected rather than truncated.
+    ctypes silently wraps out-of-range integers instead of raising, so validate
+    the signed 64-bit range before conversion. ``operator.index`` (not ``int()``)
+    rejects floats and other truncating types rather than silently truncating
+    them. Zero still selects OVXR's private ledger.
     """
     ordinal = operator.index(value)
-    if ordinal < 0 or ordinal > 0xFFFFFFFFFFFFFFFF:
-        raise ValueError(f"stage ordinal out of uint64 range: {value!r}")
+    if not ORDINAL_MIN <= ordinal <= ORDINAL_MAX:
+        raise ValueError(f"stage ordinal out of int64 range: {value!r}")
     return ordinal
 
 
@@ -244,6 +260,25 @@ class FrameFormat(IntEnum):
         return unknown
 
 
+class OpenXrRuntimeStatus(IntEnum):
+    """``ovxr_openxr_runtime_status_t`` — outcome of :func:`check_openxr_runtime`."""
+
+    UNAVAILABLE = 0
+    NO_SYSTEM = 1
+    READY = 2
+
+    @classmethod
+    def _missing_(cls, value):
+        """Preserve statuses added by a newer native payload."""
+        if not isinstance(value, int):
+            return None
+
+        unknown = int.__new__(cls, value)
+        unknown._name_ = f"UNKNOWN_{value}"
+        unknown._value_ = value
+        return unknown
+
+
 class Setting(IntEnum):
     """``ovxr_setting_int64_t`` — int64-valued setting keys (order matches ovxr.h)."""
 
@@ -282,6 +317,10 @@ class ovx_string_t(Structure):
         inst = cls(b, len(b))
         inst._keepalive = b  # prevent GC of the bytes backing ptr
         return inst
+
+
+ovxr_log_callback_t = CFUNCTYPE(None, c_int32, c_double, ovx_string_t, c_void_p)
+ovxr_openxr_event_callback_t = CFUNCTYPE(None, c_int32, c_void_p, c_size_t, c_void_p)
 
 
 class _SettingValue(ctypes.Union):
@@ -520,8 +559,8 @@ class ovxr_frame_plan_t(Structure):
         ("frame", c_void_p),  # ovxr_frame_t*
         ("timing", ovxr_frame_timing_t),
         ("render_products", ovrtx_render_product_set_t),
-        ("step_result", c_uint64),  # ovrtx_step_result_handle_t, borrowed
-        ("render_ordinal", c_uint64),  # ovstage_ordinal_t
+        ("step_result", ovrtx_step_result_handle_t),  # borrowed
+        ("render_ordinal", c_int64),  # ovstage_ordinal_t
     ]
 
 
@@ -531,13 +570,15 @@ class ovxr_submit_desc_t(Structure):
     ``step_result`` is the application's ``ovrtx_step_with_stage`` result and is
     only accepted in application-stepped mode (must be 0 otherwise).
     ``additional_layers`` holds borrowed native ``XrCompositionLayerBaseHeader*``
-    values appended after the OVXR scene layer; zero-initialized means scene only.
+    values appended after the OVXR scene layer by default. ``replace_scene_layer``
+    submits only those layers instead; zero-initialized means scene only.
     """
 
     _fields_ = [
-        ("step_result", c_uint64),  # ovrtx_step_result_handle_t, application-owned
+        ("step_result", ovrtx_step_result_handle_t),  # application-owned
         ("additional_layers", POINTER(c_void_p)),  # const XrCompositionLayerBaseHeader* const*
         ("additional_layer_count", c_uint32),
+        ("replace_scene_layer", c_bool),
     ]
 
 
@@ -551,6 +592,18 @@ class ovxr_frame_result_t(Structure):
         ("source_gpu_count", c_uint32),
         ("environment_blend_mode", c_int32),
         ("openxr_submit_message", ctypes.c_char * 256),
+    ]
+
+
+class ovxr_warm_up_result_t(Structure):
+    """``ovxr_warm_up_result_t`` — what ``ovxr_warm_up`` did."""
+
+    _fields_ = [
+        ("step_count", c_uint32),
+        ("keep_alive_frame_count", c_uint32),
+        ("duration_seconds", c_double),
+        ("first_step_seconds", c_double),
+        ("last_step_seconds", c_double),
     ]
 
 
@@ -596,6 +649,11 @@ class ovxr_pose_t(Structure):
         ("position", ovxr_vector3_t),
     ]
 
+
+class ovxr_frame_projection_view_t(Structure):
+    """Value copy of a bound frame's tracking-space pose and FOV."""
+
+    _fields_ = [("pose", ovxr_pose_t), ("fov_angles", c_float * 4)]
 
 class ovxr_render_product_resolution_t(Structure):
     """``ovxr_render_product_resolution_t``."""
@@ -644,6 +702,19 @@ class ovxr_openxr_probe_result_t(Structure):
         ("system_name", ctypes.c_char * 256),
         ("vulkan_physical_device_name", ctypes.c_char * 256),
         ("d3d12_adapter_name", ctypes.c_char * 256),
+        ("message", ctypes.c_char * 256),
+    ]
+
+
+class ovxr_openxr_runtime_check_t(Structure):
+    """``ovxr_openxr_runtime_check_t``."""
+
+    _fields_ = [
+        ("status", c_int32),                     # ovxr_openxr_runtime_status_t
+        ("last_xr_result", c_int32),
+        ("runtime_version", c_uint64),
+        ("runtime_name", ctypes.c_char * 128),
+        ("system_name", ctypes.c_char * 256),
         ("message", ctypes.c_char * 256),
     ]
 
@@ -890,6 +961,11 @@ _REQUIRED_FUNCTIONS = (
     "ovxr_set_managed_anchor_transform",
     "ovxr_library_telemetry_opt_out",
     "ovxr_set_frame_render_products",
+    "ovxr_set_log_callback",
+    "ovxr_get_frame_projection_views",
+    "ovxr_check_openxr_runtime",
+    "ovxr_warm_up",
+    "ovxr_set_openxr_event_callback",
 )
 
 
@@ -903,14 +979,18 @@ def _configure(lib: ctypes.CDLL) -> ctypes.CDLL:
     lib.ovxr_create.restype = c_int32
     lib.ovxr_request_exit.argtypes = [c_void_p]
     lib.ovxr_request_exit.restype = c_int32
-    lib.ovxr_destroy.argtypes = [c_void_p, c_uint64]
+    lib.ovxr_destroy.argtypes = [c_void_p, c_int64]
     lib.ovxr_destroy.restype = c_int32
     lib.ovxr_probe_openxr.argtypes = [c_void_p, POINTER(ovxr_openxr_probe_result_t)]
     lib.ovxr_probe_openxr.restype = c_int32
+    lib.ovxr_check_openxr_runtime.argtypes = [c_char_p, POINTER(ovxr_openxr_runtime_check_t)]
+    lib.ovxr_check_openxr_runtime.restype = c_int32
     lib.ovxr_submit_openxr_blank_frame.argtypes = [c_void_p, POINTER(ovxr_openxr_frame_result_t)]
     lib.ovxr_submit_openxr_blank_frame.restype = c_int32
     lib.ovxr_get_last_error.argtypes = []
     lib.ovxr_get_last_error.restype = c_char_p
+    lib.ovxr_set_log_callback.argtypes = [c_int32, ovxr_log_callback_t, c_void_p]
+    lib.ovxr_set_log_callback.restype = c_int32
 
     lib.ovxr_get_device_info.argtypes = [c_void_p, POINTER(ovxr_device_info_t)]
     lib.ovxr_get_device_info.restype = c_int32
@@ -931,23 +1011,32 @@ def _configure(lib: ctypes.CDLL) -> ctypes.CDLL:
     lib.ovxr_submit_frame.restype = c_int32
     lib.ovxr_get_vulkan_handles.argtypes = [c_void_p, POINTER(ovxr_vulkan_handles_t)]
     lib.ovxr_get_vulkan_handles.restype = c_int32
+    lib.ovxr_set_openxr_event_callback.argtypes = [c_void_p, ovxr_openxr_event_callback_t, c_void_p]
+    lib.ovxr_set_openxr_event_callback.restype = c_int32
+    lib.ovxr_get_frame_projection_views.argtypes = [
+        c_void_p, POINTER(ovxr_frame_plan_t), c_uint32,
+        POINTER(ovxr_frame_projection_view_t), POINTER(c_uint32),
+    ]
+    lib.ovxr_get_frame_projection_views.restype = c_int32
     lib.ovxr_cancel_frame.argtypes = [c_void_p, POINTER(ovxr_frame_plan_t)]
     lib.ovxr_cancel_frame.restype = None
-    lib.ovxr_render_frame.argtypes = [c_void_p, c_double, c_uint64, POINTER(ovxr_frame_result_t), POINTER(c_bool)]
+    lib.ovxr_render_frame.argtypes = [c_void_p, c_double, c_int64, POINTER(ovxr_frame_result_t), POINTER(c_bool)]
     lib.ovxr_render_frame.restype = c_int32
-    lib.ovxr_bind_frame.argtypes = [c_void_p, POINTER(ovxr_frame_plan_t), c_double, c_uint64, POINTER(c_bool)]
+    lib.ovxr_warm_up.argtypes = [c_void_p, c_int64, POINTER(c_bool), POINTER(ovxr_warm_up_result_t)]
+    lib.ovxr_warm_up.restype = c_int32
+    lib.ovxr_bind_frame.argtypes = [c_void_p, POINTER(ovxr_frame_plan_t), c_double, c_int64, POINTER(c_bool)]
     lib.ovxr_bind_frame.restype = c_int32
     lib.ovxr_acquire_frame.argtypes = [c_void_p, POINTER(ovxr_frame_view_t)]
     lib.ovxr_acquire_frame.restype = c_int32
-    lib.ovxr_update_camera_transforms.argtypes = [c_void_p, POINTER(ovxr_camera_transform_t), c_size_t, c_uint64]
+    lib.ovxr_update_camera_transforms.argtypes = [c_void_p, POINTER(ovxr_camera_transform_t), c_size_t, c_int64]
     lib.ovxr_update_camera_transforms.restype = c_int32
-    lib.ovxr_update_prim_transforms.argtypes = [c_void_p, POINTER(ovxr_prim_transform_t), c_size_t, c_uint64]
+    lib.ovxr_update_prim_transforms.argtypes = [c_void_p, POINTER(ovxr_prim_transform_t), c_size_t, c_int64]
     lib.ovxr_update_prim_transforms.restype = c_int32
     lib.ovxr_update_render_product_resolutions.argtypes = [
         c_void_p,
         POINTER(ovxr_render_product_resolution_t),
         c_size_t,
-        c_uint64,
+        c_int64,
     ]
     lib.ovxr_update_render_product_resolutions.restype = c_int32
     lib.ovxr_set_anchor_prim.argtypes = [c_void_p, ovx_string_t]
@@ -962,12 +1051,12 @@ def _configure(lib: ctypes.CDLL) -> ctypes.CDLL:
     lib.ovxr_transform_openxr_pose.restype = c_int32
     lib.ovxr_get_anchor_prim.argtypes = [c_void_p, c_char_p, c_size_t, POINTER(c_size_t)]
     lib.ovxr_get_anchor_prim.restype = c_int32
-    lib.ovxr_clear_anchor.argtypes = [c_void_p, c_uint64]
+    lib.ovxr_clear_anchor.argtypes = [c_void_p, c_int64]
     lib.ovxr_clear_anchor.restype = c_int32
     lib.ovxr_set_managed_anchor_transform.argtypes = [
         c_void_p,
         POINTER(ovxr_anchor_transform_t),
-        c_uint64,
+        c_int64,
     ]
     lib.ovxr_set_managed_anchor_transform.restype = c_int32
     lib.ovxr_library_telemetry_opt_out.argtypes = []
@@ -1163,7 +1252,7 @@ class Bindings:
         ``stage_ordinal`` is the OVStage ordinal the runtime overlay release is
         written at (0 = OVXR's private ledger; see ``ovxr.h`` "OVStage ordinals").
         """
-        return self._lib.ovxr_destroy(context, c_uint64(check_ordinal(stage_ordinal)))
+        return self._lib.ovxr_destroy(context, c_int64(check_ordinal(stage_ordinal)))
 
     def request_exit(self, context: c_void_p) -> int:
         """``ovxr_request_exit``; cooperative and safe alongside frame calls."""
@@ -1220,9 +1309,25 @@ class Bindings:
         rc = self._lib.ovxr_render_frame(
             context,
             c_double(delta_time_seconds),
-            c_uint64(check_ordinal(stage_ordinal)),
+            c_int64(check_ordinal(stage_ordinal)),
             ctypes.byref(out),
             ctypes.byref(sealed),
+        )
+        return rc, out, sealed.value
+
+    def warm_up(self, context: c_void_p, stage_ordinal: int = 0):
+        """``ovxr_warm_up`` — returns ``(result, ovxr_warm_up_result_t, ordinal_sealed)``.
+
+        ``stage_ordinal`` and ``ordinal_sealed`` follow :meth:`render_frame`.
+        Serialize with non-acquire calls using ``context``.
+        """
+        out = ovxr_warm_up_result_t()
+        sealed = c_bool(False)
+        rc = self._lib.ovxr_warm_up(
+            context,
+            c_int64(check_ordinal(stage_ordinal)),
+            ctypes.byref(sealed),
+            ctypes.byref(out),
         )
         return rc, out, sealed.value
 
@@ -1242,10 +1347,26 @@ class Bindings:
             context,
             ctypes.byref(plan),
             c_double(delta_time_seconds),
-            c_uint64(check_ordinal(stage_ordinal)),
+            c_int64(check_ordinal(stage_ordinal)),
             ctypes.byref(sealed),
         )
         return rc, sealed.value
+
+    def get_frame_projection_views(self, context: c_void_p, plan: ovxr_frame_plan_t):
+        """Copy the bound frame's cached views without locating them again."""
+        count = c_uint32()
+        rc = self._lib.ovxr_get_frame_projection_views(context, ctypes.byref(plan), 0, None, ctypes.byref(count))
+        if rc != Result.SUCCESS or not count.value:
+            return rc, ()
+        views = (ovxr_frame_projection_view_t * count.value)()
+        rc = self._lib.ovxr_get_frame_projection_views(
+            context, ctypes.byref(plan), len(views), views, ctypes.byref(count))
+        return rc, tuple(views[:count.value]) if rc == Result.SUCCESS else ()
+
+    def set_openxr_event_callback(self, context: c_void_p, callback, user_data=None):
+        """The caller must retain callback until replacement/unregister/destroy."""
+        return self._lib.ovxr_set_openxr_event_callback(
+            context, callback if callback is not None else ovxr_openxr_event_callback_t(), user_data)
 
     def get_vulkan_handles(self, context: c_void_p):
         """Return the borrowed Vulkan binding, or NOT_READY before session creation."""
@@ -1269,6 +1390,16 @@ class Bindings:
         """
         out = ovxr_openxr_probe_result_t()
         rc = self._lib.ovxr_probe_openxr(context, ctypes.byref(out))
+        return rc, out
+
+    def check_openxr_runtime(self, application_name: Optional[str] = None):
+        """``ovxr_check_openxr_runtime`` — returns ``(result, ovxr_openxr_runtime_check_t)``.
+
+        Context-free; safe from any thread.
+        """
+        out = ovxr_openxr_runtime_check_t()
+        name = application_name.encode("utf-8") if application_name else None
+        rc = self._lib.ovxr_check_openxr_runtime(name, ctypes.byref(out))
         return rc, out
 
     def submit_openxr_blank_frame(self, context: c_void_p):
@@ -1312,7 +1443,7 @@ class Bindings:
         Serialize with non-acquire calls using ``context``.
         """
         return self._lib.ovxr_update_camera_transforms(
-            context, cameras, len(cameras), c_uint64(check_ordinal(stage_ordinal))
+            context, cameras, len(cameras), c_int64(check_ordinal(stage_ordinal))
         )
 
     def update_prim_transforms(self, context: c_void_p, prims, stage_ordinal: int = 0) -> int:
@@ -1320,7 +1451,7 @@ class Bindings:
 
         The batch lands at ``stage_ordinal`` (0 = private ledger).
         """
-        return self._lib.ovxr_update_prim_transforms(context, prims, len(prims), c_uint64(check_ordinal(stage_ordinal)))
+        return self._lib.ovxr_update_prim_transforms(context, prims, len(prims), c_int64(check_ordinal(stage_ordinal)))
 
     def update_render_product_resolutions(self, context: c_void_p, render_products, stage_ordinal: int = 0) -> int:
         """Update resolutions from an array of :class:`ovxr_render_product_resolution_t`.
@@ -1329,7 +1460,7 @@ class Bindings:
         Serialize with non-acquire calls using ``context``.
         """
         return self._lib.ovxr_update_render_product_resolutions(
-            context, render_products, len(render_products), c_uint64(check_ordinal(stage_ordinal))
+            context, render_products, len(render_products), c_int64(check_ordinal(stage_ordinal))
         )
 
     def set_anchor_prim(self, context: c_void_p, prim_path: str) -> int:
@@ -1350,14 +1481,14 @@ class Bindings:
 
     def clear_anchor(self, context: c_void_p, stage_ordinal: int = 0) -> int:
         """Queue a reset to the identity anchor; serialize with non-acquire calls using ``context``."""
-        return self._lib.ovxr_clear_anchor(context, c_uint64(check_ordinal(stage_ordinal)))
+        return self._lib.ovxr_clear_anchor(context, c_int64(check_ordinal(stage_ordinal)))
 
     def set_managed_anchor_transform(
         self, context: c_void_p, transform: ovxr_anchor_transform_t, stage_ordinal: int = 0
     ) -> int:
         """Publish and select the managed anchor; serialize with non-acquire calls using ``context``."""
         return self._lib.ovxr_set_managed_anchor_transform(
-            context, ctypes.byref(transform), c_uint64(check_ordinal(stage_ordinal))
+            context, ctypes.byref(transform), c_int64(check_ordinal(stage_ordinal))
         )
 
     def get_anchor_prim(self, context: c_void_p):
@@ -1380,8 +1511,115 @@ class Bindings:
         """Suppress the startup report; safe from any thread, with or without a context."""
         self._lib.ovxr_library_telemetry_opt_out()
 
+    def set_log_callback(self, severity: int, callback: ovxr_log_callback_t, user_data=None) -> int:
+        """Forward a raw callback; its owner must retain it until native delivery ends."""
+        return self._lib.ovxr_set_log_callback(severity, callback, user_data)
+
 
 _ovxr_loader = _LibraryLoader()
+
+
+# One trampoline stays alive for the module's lifetime, including its own return
+# after a callback clears/replaces itself. user_data is a unique integer key,
+# never a borrowed PyObject pointer. Each record owns the callable and library.
+_log_callback_lock = Lock()
+_log_registrations: dict = {}
+_pending_log_registrations: set = set()
+_log_registration_ids = count(1)
+
+
+@ovxr_log_callback_t
+def _dispatch_log(severity, timestamp, message, user_data):
+    """Copy a borrowed native message and invoke its retained Python callable."""
+    try:
+        with _log_callback_lock:
+            registration = _log_registrations.get(user_data)
+        if registration is None:
+            return
+        # Reading a c_char_p field produces NUL-truncated bytes. Read the raw
+        # pointer instead so the length, including embedded NULs, is respected.
+        address = ctypes.cast(ctypes.byref(message), POINTER(c_void_p))[0]
+        text = ctypes.string_at(address, message.length).decode("utf-8", "replace") if address else ""
+        registration[0](LogSeverity(severity), float(timestamp), text)
+    except BaseException:
+        # No Python exception, even SystemExit or a failing stderr, may escape
+        # the foreign callback. Keep registration alive through the user call.
+        try:
+            traceback.print_exc()
+        except BaseException:
+            pass
+
+
+def set_log_callback(callback, severity: LogSeverity = LogSeverity.WARNING) -> None:
+    """Install or clear the process-global callback for OVXR's own log channel.
+
+    ``callback(severity, timestamp, message)`` receives a :class:`LogSeverity`,
+    wall-clock seconds since the Unix epoch, and an owned UTF-8-decoded ``str``.
+    Messages below ``severity`` are dropped; :attr:`LogSeverity.NONE` suppresses
+    all delivery. ``callback=None`` disables delivery. OVRTX and OVStage logging
+    callbacks are independent.
+
+    OVRTX must already be initialized (for example, by a live
+    ``ovrtx.Renderer``). Install before creating an :class:`~ovxr.Context` to
+    capture its creation diagnostics. Failure raises :class:`~ovxr.OvxrError`
+    with the native error details and leaves the previous callback installed.
+
+    Invocations are serialized, normally on the emitting thread, but host
+    asynchronous logging or internal deferral can deliver later on another
+    thread. Stay cheap and avoid depending on thread-local state or re-entering
+    context operations. OVXR has no flush API. Exceptions are reported to stderr
+    and suppressed rather than escaping into C.
+
+    Replacing/clearing from another thread waits for an in-flight invocation.
+    A callback may also replace/clear itself; its current invocation completes
+    normally. Concurrent setters can retain superseded callables until the next
+    successful replacement/clear. Clearing restores OVXR's prior channel level
+    but resets the shared log source threshold to inherit the global level;
+    hosts with a custom source threshold must reapply it (see ``ovxr.h``).
+
+    :param callback: Callable accepting three arguments, or ``None`` to clear.
+    :param severity: Minimum severity, defaulting to ``LogSeverity.WARNING``.
+    :raises TypeError: If ``callback`` is neither callable nor ``None``.
+    :raises ValueError: If ``severity`` is not a supported log severity.
+    """
+    if callback is not None and not callable(callback):
+        raise TypeError("callback must be callable or None")
+    severity = LogSeverity(operator.index(severity))
+    bindings = _ovxr_loader.get_bindings()
+    with _log_callback_lock:
+        # Only completed registrations that predate this native call can be
+        # reclaimed after it succeeds. Overlapping setters can return in the
+        # opposite order from installation, so a single 'active' assignment
+        # after the call would risk freeing the callback actually installed.
+        superseded = _log_registrations.keys() - _pending_log_registrations
+        token = next(_log_registration_ids) if callback is not None else 0
+        if token:
+            _log_registrations[token] = (callback, bindings)
+            _pending_log_registrations.add(token)
+
+    result = None
+    released = []
+    try:
+        # Neither this call nor user code runs under the Python registry lock:
+        # a native setter can wait for a callback that re-enters this function.
+        result = bindings.set_log_callback(
+            int(severity), _dispatch_log if token else ovxr_log_callback_t(), token or None
+        )
+        if result != Result.SUCCESS:
+            from .context import OvxrError
+
+            raise OvxrError(bindings.set_log_callback.__name__, result, bindings.get_last_error())
+    finally:
+        with _log_callback_lock:
+            _pending_log_registrations.discard(token)
+            if result == Result.SUCCESS:
+                for old_token in superseded:
+                    released.append(_log_registrations.pop(old_token, None))
+            elif result is not None and token:
+                released.append(_log_registrations.pop(token, None))
+        # Drop references outside the lock: callable finalizers may re-enter.
+        # An interrupted FFI call has an unknown outcome, so retain its record
+        # conservatively until a later successful setter fences it out.
 
 
 def library_telemetry_opt_out() -> None:
@@ -1390,7 +1628,7 @@ def library_telemetry_opt_out() -> None:
     Call this before the first :class:`~ovxr.Context`: the report fires at most
     once per process, on the first create. It always loads libovxr and the
     borrowed ovrtx and ovstage runtimes like :func:`load`, raising the same
-    errors, so ``OVX_PHONE_HOME_OPT_OUT=1`` at launch is the way to opt out
+    errors, so ``NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1`` at launch is the way to opt out
     without loading anything. See ``ovxr.h`` for the full contract.
     """
     _ovxr_loader.get_bindings().library_telemetry_opt_out()

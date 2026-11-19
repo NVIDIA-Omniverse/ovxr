@@ -1,0 +1,46 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+    subLayers = [@pip-camera.usda@]
+)
+
+over "World"
+{
+    def Xform "PipPanel"
+    {
+        double3 xformOp:translate = (-0.75, 1.6, 1.4)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Mesh "Screen" (prepend apiSchemas = ["MaterialBindingAPI"])
+        {
+            # Replaced by a 128x96 diagnostic pixel mesh on the first update.
+            point3f[] points = [(-0.45, 0.36, 0), (-0.45, -0.36, 0), (0.45, -0.36, 0), (0.45, 0.36, 0)]
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            color3f[] primvars:displayColor = [(0, 0, 0)] (interpolation = "uniform")
+            uniform token subdivisionScheme = "none"
+            bool doubleSided = true
+            rel material:binding = </World/PipPanel/Material>
+        }
+        def Material "Material"
+        {
+            token outputs:surface.connect = </World/PipPanel/Material/Surface.outputs:surface>
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0, 0, 0)
+                color3f inputs:emissiveColor.connect = </World/PipPanel/Material/Color.outputs:result>
+                float inputs:roughness = 1
+                token outputs:surface
+            }
+            def Shader "Color"
+            {
+                uniform token info:id = "UsdPrimvarReader_float3"
+                token inputs:varname = "displayColor"
+                float3 inputs:fallback = (0, 0, 0)
+                float3 outputs:result
+            }
+        }
+    }
+}

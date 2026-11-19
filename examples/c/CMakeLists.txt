@@ -21,3 +21,23 @@ ovstage_fetch()
 ovxr_fetch()
 
 add_subdirectory(minimal-xr)
+add_subdirectory(live-scene)
+add_subdirectory(anchors-and-teleport)
+add_subdirectory(foveation)
+add_subdirectory(ar-blending)
+add_subdirectory(view-configuration)
+add_subdirectory(async-capture)
+
+# Basic examples remain buildable with just the three public SDK packages.
+# The four support-dependent examples additionally consume OpenXR/Vulkan headers.
+include(sample_support_headers)
+if(SAMPLE_OPENXR_INCLUDE_DIR AND SAMPLE_VULKAN_INCLUDE_DIR)
+    add_subdirectory(sample-support)
+    add_subdirectory(frame-capture)
+    add_subdirectory(runtime-lifecycle)
+    add_subdirectory(spatial-workbench)
+    add_subdirectory(composition-layers)
+else()
+    message(WARNING "Skipping frame-capture, runtime-lifecycle, spatial-workbench and composition-layers: "
+        "OpenXR (1.1.53+) or Vulkan headers not found. Set SAMPLE_OPENXR_INCLUDE_DIR and SAMPLE_VULKAN_INCLUDE_DIR.")
+endif()

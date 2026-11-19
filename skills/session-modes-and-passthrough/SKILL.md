@@ -30,3 +30,9 @@ Use current OVRTX schemas for renderer-output settings and [stage-publication](.
 ## Examples
 
 For passthrough acceptance, use a transparent-background fixture plus an opaque dark object. Inspect submitted alpha on the intended client; a black desktop RGB window is insufficient evidence.
+
+
+## Examples and validation
+
+Use [ar-blending](../../examples/python/ar-blending/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#session-modes-and-passthrough) for the automated checks associated with this guidance.

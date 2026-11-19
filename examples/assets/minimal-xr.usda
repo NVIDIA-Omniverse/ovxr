@@ -1,0 +1,20 @@
+#usda 1.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+(
+    defaultPrim = "World"
+    upAxis = "Y"
+    metersPerUnit = 1
+    subLayers = [@xr-room.usda@]
+)
+
+# The runtime supplies the user's head height above this floor-level anchor.
+# Keep the same anchor name when selecting another scene with --usd.
+def Scope "Render"
+{
+    def Camera "Camera"
+    {
+        double3 xformOp:translate = (0, 0, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}

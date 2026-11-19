@@ -1,0 +1,5 @@
+# Python 3.12 x64; OVUI comes from the official release wheel.
+ovui @ https://github.com/NVIDIA-Omniverse/ovui/releases/download/v0.2.0/ovui-0.2.0-cp312-cp312-win_amd64.whl#sha256=df371fb416adfce6f3e83a36938b72dfec0d92d2a308c632db04b22aba6269f7
+warp-lang==1.15.0
+numpy==2.5.3
+Pillow==12.3.0

@@ -5,11 +5,11 @@ description = "Minimal ovxr Python example: load a USD stage and run a VR or AR 
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    # Released dependency builds from deps/ovxr_deps.yaml. The OVXR pin is
-    # stamped with its exact build number when the first package is published.
-    "ovrtx==0.6.0.1791947691",
-    "ovstage==0.3.0.1791986420",
-    "ovxr==0.1.0.5842",
+    # Development version ranges from deps/ovxr_deps.yaml. Packaging stamps
+    # the exact versions built together.
+    "ovrtx==0.7.0.1794596436",
+    "ovstage==0.4.0.1794520352",
+    "ovxr==0.2.0.1794933073",
 ]
 
 [tool.uv]

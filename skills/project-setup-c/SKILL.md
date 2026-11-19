@@ -28,3 +28,9 @@ Include the matched public header instead of reproducing ABI structs. Read [cont
 ## Examples
 
 For a native headset application, configure the supplied SDK prefixes, link package targets, and deploy their matched runtime files. Confirm native loading before diagnosing session readiness.
+
+
+## Examples and validation
+
+Use [minimal-xr](../../examples/python/minimal-xr/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#project-setup-c) for the automated checks associated with this guidance.

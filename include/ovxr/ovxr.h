@@ -10,6 +10,14 @@
 #ifndef OVXR_H
 #define OVXR_H
 
+/*
+ * OVXR 0.2 public API, targeting OVRTX 0.7 and OVStage 0.4.
+ * Use headers, bindings, loader and native payload from matching SDK builds.
+ * See docs/MIGRATION.md in the public sources for the 0.1-to-0.2 changes, including
+ * typed OVRTX handles and signed OVStage ordinals. This release remains
+ * pre-release; the package version is not a cross-build ABI guarantee.
+ */
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -24,6 +32,9 @@
 #    define OVXR_API
 #endif
 
+/* Maximum supported number of unresolved frame plans per context. */
+#define OVXR_MAX_FRAMES_IN_FLIGHT 64u
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -31,6 +42,15 @@ extern "C"
 
 typedef struct ovxr_context_t ovxr_context_t;
 typedef struct ovxr_frame_t ovxr_frame_t;
+
+/* The event buffer is a borrowed XrEventDataBuffer. Interpret it using the
+ * matching OpenXR headers. It and any runtime-owned pointers are valid only
+ * during this synchronous callback; copy values needed afterward.
+ */
+typedef void (*ovxr_openxr_event_callback_t)(int32_t event_type,
+                                            const void* event_data,
+                                            size_t event_size,
+                                            void* user_data);
 
 typedef enum ovxr_result_t
 {
@@ -93,12 +113,13 @@ typedef enum ovxr_environment_blend_mode_t
 
 typedef enum ovxr_local_foveation_mode_t
 {
-    /* Leave the decision to the runtime: valid located runtime PQW enables warped
+    /* Leave the decision to the runtime: valid located piecewise quadratic warp (PQW)
+       data from NVIDIA's XR_NV_foveation_piecewise_quadratic_warp OpenXR extension enables warped
        foveation for OVXR-authored render products, otherwise foveation is off.
        Quad view is opt-in and resolves AUTO to DISABLED. This is the default and
        matches the previous behavior of DISABLED. */
     OVXR_LOCAL_FOVEATION_AUTO = 0,
-    /* Do not request local foveation, and do not let runtime PQW enable it. */
+    /* Do not request local foveation, and do not let the NVIDIA PQW extension enable it. */
     OVXR_LOCAL_FOVEATION_DISABLED = 1,
     /* Always author locally foveated render products with piecewise-quadratic warping,
        including all four products when quad view is selected. */
@@ -148,9 +169,10 @@ typedef enum ovxr_setting_int64_t
 {
     OVXR_SETTING_DISPLAY_MODE,
     OVXR_SETTING_LOCAL_FOVEATION_MODE,
-    /* Controls XR_NV_foveation_piecewise_quadratic_warp (or legacy XR_NVX1 spelling) enablement.
+    /* Controls NVIDIA's XR_NV_foveation_piecewise_quadratic_warp OpenXR extension
+       (piecewise quadratic warp, PQW), including the provisional XR_NVX1 spelling.
        The default is OVXR_FEATURE_DISABLED. AUTO or REQUIRED opts in; when the local foveation mode is
-       AUTO, valid located runtime PQW then selects warped foveation for OVXR-authored mono or stereo render
+       AUTO, valid located NVIDIA PQW extension data then selects warped foveation for OVXR-authored mono or stereo render
        products. Extension transport remains available for every selected view configuration. */
     OVXR_SETTING_RUNTIME_FOVEATED_SUBMISSION_POLICY,
     /* Numeric slot 3 is intentionally unused to preserve the setting-key ABI. */
@@ -251,24 +273,30 @@ typedef struct ovxr_settings_t
  *     visibility, so an abandoned ordinal is not self-cleaning and the rollback
  *     above is what removes a partial batch, not the abandonment.
  *   - Unless it was sealed, the ordinal is yours to retry, finish, or abandon.
+ *   - OVStage ordinals are signed int64_t. OVXR independently reserves zero
+ *     as its private-ledger selector; an application-owned zero ordinal cannot
+ *     be supplied through these OVXR entry points. Nonzero negative ordinals
+ *     above the OVStage floor are valid in application mode.
  *   - A stage_ordinal of 0 selects OVXR's private ledger instead: OVXR mints
- *     the next ordinal past the floor and seals it itself. That is correct
+ *     a positive ordinal past the floor and seals it itself. That is correct
  *     only while OVXR is the sole OVStage writer. ordinal_mode fixes this
  *     choice for the context lifetime. APPLICATION rejects 0/private writes;
  *     PRIVATE rejects caller-supplied ordinals.
  *
  * Ordinal admission policy. OVStage applies one admission policy per process,
- * selected by OVSTAGE_CONFIG_RUNTIME_DEFAULT_ORDINAL_ADMISSION_POLICY and
- * fixed by the first process reference (ovstage_initialize or the first
- * ovstage_create_instance). OVXR supports NONDECREASING, the default, and
- * FLOOR_ONLY. OVXR 0.1 does not support STRICTLY_INCREASING: OVXR writes some
+ * configured by OVSTAGE_CONFIG_RUNTIME_DEFAULT_ORDINAL_ADMISSION_POLICY at
+ * the first process reference (ovstage_initialize or the first
+ * ovstage_create_instance). It can change after all stages are destroyed and
+ * all successful initialization calls are matched by ovstage_shutdown.
+ * OVXR supports NONDECREASING, the default, and
+ * FLOOR_ONLY. OVXR does not support STRICTLY_INCREASING: OVXR writes some
  * cells more than once at a single ordinal (the first renderable
  * ovxr_bind_frame writes identity eye-camera transforms and then the frame's,
  * and failure undo and a retry rewrite at the failed ordinal), and that policy
- * rejects every such rewrite. Keep the default, or select NONDECREASING
+ * rejects every such rewrite. Keep the default, or select NONDECREASING or FLOOR_ONLY
  * explicitly before anything else in the process references OVStage.
  * ovxr_create fails when the stage's process selected STRICTLY_INCREASING.
- * Support for STRICTLY_INCREASING is planned for OVXR 0.2.
+ * Support for STRICTLY_INCREASING is planned for a future release.
  */
 typedef struct ovxr_desc_t
 {
@@ -314,7 +342,11 @@ typedef struct ovxr_desc_t
     /* Optional settings overrides. Default: none. */
     const ovxr_settings_t* settings;
 
-    /* Default: 1 frame in flight. */
+    /*
+     * Maximum number of unresolved frame plans. Zero defaults to 1; supported
+     * explicit values are 1 through OVXR_MAX_FRAMES_IN_FLIGHT (64).
+     * ovxr_create returns OVXR_ERROR for larger values before allocating the context.
+     */
     uint32_t max_frames_in_flight;
     /*
      * Reserved render-GPU limit; defaults to 1 but currently does not constrain
@@ -328,7 +360,7 @@ typedef struct ovxr_desc_t
     /*
      * Optional render products. With create_render_products disabled, these
      * paths must name existing prepared RenderProduct prims; OVXR authors only
-     * its required per-product eco-mode override on them. With
+     * its required per-product eco-mode and de-moire overrides on them. With
      * create_render_products enabled, they are the target paths OVXR authors;
      * however, if camera_path_count is zero, OVXR still reads cameras from these
      * products while configuring the context, so the products must already exist. Provide
@@ -341,8 +373,9 @@ typedef struct ovxr_desc_t
     size_t render_product_count;
 
     /*
-     * OpenXR view-driven camera fields. ovxr_begin_frame() waits/begins/
-     * locates the OpenXR frame and caches its view state; ovxr_bind_frame()
+     * OpenXR view-driven camera fields. ovxr_begin_frame() waits for (or,
+     * with application_steps_renderer, polls) the OpenXR frame, begins and
+     * locates it, and caches its view state; ovxr_bind_frame()
      * publishes these cameras to the borrowed OVStage at its stage_ordinal,
      * and ovxr_submit_frame() submits using the same views.
      * tracking_anchor_path may name an existing source camera/prim whose
@@ -381,12 +414,19 @@ typedef struct ovxr_desc_t
      *   create_render_products disabled, this write occurs during the first
      *   renderable ovxr_bind_frame().
      *   Required color and depth AOVs therefore remain available on every frame.
+     * - OVXR authors omni:rtx:rt:demoire = false on the same RenderProducts,
+     *   at the same point, for foveated and unfoveated views alike, matching
+     *   Kit XR. De-moire is not supported with XR rendering.
+     * - OVXR does not restore the eco-mode or de-moire values on prepared
+     *   products supplied with create_render_products disabled. Both overrides
+     *   remain authored after ovxr_destroy(); an application that reuses those
+     *   products outside XR must restore the values itself.
      * - AR passthrough compositing (omni:rtx:post:compositing:* and the related
      *   refraction/cutout-opacity settings) is authored only on RenderProducts
      *   OVXR creates. With create_render_products disabled, an application
      *   supplying its own prepared products in an AR environment blend mode is
      *   responsible for authoring these settings itself; OVXR's prepared-product
-     *   path only writes the eco-mode override above.
+     *   path only writes the eco-mode and de-moire overrides above.
      * - Authoring is transactional at the attribute-value level: a failed
      *   first bind rolls back the attribute values it wrote on prims it created
      *   (keeping an "ovxr:runtimeAuthored" ownership marker), restores a
@@ -407,6 +447,36 @@ typedef struct ovxr_desc_t
      *   collisions and without either side publishing the other's incomplete
      *   writes. Writes made before ovxr_create are the application's to
      *   serialize, as before.
+     * - Application-provided foveated products must have effective
+     *   omni:rtx:xr:foveation:unwarp=false. OVXR validates their composed foveation
+     *   dimensions, center and radius at the first renderable bind and again
+     *   after ovxr_update_render_product_resolutions(). Resize supplied products
+     *   through that API; direct OVStage resolution writes do not invalidate
+     *   OVXR's cached geometry. Incompatible settings fail
+     *   with the product path and setting name rather than being overwritten. Non-foveated products are accepted
+     *   regardless of the unwarp setting, which the renderer ignores without
+     *   foveation. OVXR applies any required color/depth unwarp in CUDA. If the
+     *   runtime supports and OVXR enables NVIDIA's OpenXR extension
+     *   XR_NV_foveation_piecewise_quadratic_warp (piecewise quadratic warp, PQW;
+     *   the provisional XR_NVX1 spelling is also supported), valid located
+     *   extension data determines warped versus unwarped submission. Warped
+     *   submission requires matching per-view product dimensions and foveation
+     *   geometry. Non-foveated supplied products are rejected in that mode:
+     *   OVXR neither authors their foveation settings nor warps a full-resolution
+     *   image into the runtime's requested geometry. Full-resolution submission
+     *   is accepted when the extension reports an unwarped extent, including
+     *   equal warped and unwarped dimensions. The first renderable
+     *   ovxr_bind_frame() loads the product metadata and validates it against
+     *   the located extension data before rendering. Runtime PQW data is read
+     *   once at the first renderable begin; it is not refreshed later. A submission
+     *   mismatch keeps failing subsequent binds and ovxr_begin_frame() until a
+     *   successful ovxr_update_render_product_resolutions() requests revalidation.
+     *   Restoring matching dimensions allows the next renderable bind to recover;
+     *   an update does not itself validate compatibility with the runtime.
+     *   Already-bound frames retain their own submission and readback geometry.
+     *   Without usable NVIDIA PQW extension data, foveated supplied products
+     *   require foveation_unwarp=true; otherwise bind fails with a product-specific
+     *   error because a plain projection layer cannot consume a warped image.
      *
      * Defaults:
      * - render products: <runtime_prim_root>/Render/Products/Left for mono,
@@ -428,8 +498,12 @@ typedef struct ovxr_desc_t
     size_t render_var_count;
     ovx_string_t source_render_product;
     ovx_string_t render_settings;
-    /* Legacy-fallback foveation for OVXR-authored products: submit unwarped images (OVXR
-       unwarps the warped render in CUDA at submit). Runtime PQW overrides this choice. */
+    /* When usable NVIDIA PQW extension data is unavailable (unsupported, disabled,
+       or invalid), request unwarped submission: OVXR renders foveated products
+       warped and unwarps color and depth in CUDA at submit. Valid located data from
+       XR_NV_foveation_piecewise_quadratic_warp (or its provisional XR_NVX1 spelling)
+       determines the submission policy when available. Foveated application-provided
+       products require this flag when usable extension data is unavailable. */
     bool foveation_unwarp;
     int32_t foveation_unwarped_width;
     int32_t foveation_unwarped_height;
@@ -472,6 +546,11 @@ typedef struct ovxr_desc_t
      * XrCompositionLayerDepthInfoKHR planes declared to CloudXR, so the two always
      * agree. They clip render geometry: anything nearer than depth_near_z or
      * farther than depth_far_z is clipped out of the color/depth render.
+     *
+     * XRDepth is reversed-Z (1.0 at the near plane, 0.0 at the far plane), so the
+     * submitted XrCompositionLayerDepthInfoKHR carries nearZ = depth_far_z and
+     * farZ = depth_near_z. That nearZ > farZ is intentional: it is how
+     * XR_KHR_composition_layer_depth declares reversed depth to the runtime.
      *
      * These planes do NOT govern streamed-depth precision. CloudXR reconstructs
      * metric distance from the (reverse, 32-bit float) XRDepth and re-encodes it
@@ -521,7 +600,7 @@ typedef struct ovxr_desc_t
     uint32_t readback_render_product_index;
 
     /*
-     * When true with enable_frame_readback and runtime-created foveated render
+     * When true with enable_frame_readback and created or validated foveated render
      * products, OVXR unwarps the captured colour in CUDA to the unwarped
      * resolution even when OpenXR submission uses the warped image, so the
      * acquired frame has the unwarped size. This does not change the OpenXR
@@ -549,6 +628,10 @@ typedef struct ovxr_desc_t
      * ovxr_render_frame() are rejected) and gives up bind's guarantee that the
      * renderer's borrowed Stage reads completed inside its call. Intended for
      * applications that must observe or own the OVRTX step directly.
+     * In this mode ovxr_begin_frame() starts or polls an internal OpenXR wait
+     * and returns OVXR_NOT_READY while it is pending. For auxiliary-only steps,
+     * keep the eye products in the step set and pause their cameras as described
+     * by ovxr_bind_frame(); submit/cancel do not publish that pause.
      */
     bool application_steps_renderer;
 } ovxr_desc_t;
@@ -567,9 +650,16 @@ typedef struct ovxr_runtime_features_t
     ovxr_graphics_api_t graphics_api;
     ovxr_session_mode_t session_mode;
     ovxr_environment_blend_mode_t environment_blend_mode;
-    /* Effective local mode. When configured as AUTO, this can change from DISABLED
-       to WARPED after a frame locates valid runtime PQW data; query again after that
-       frame. Quad-view AUTO remains DISABLED. */
+    /* Effective local mode. When OVXR creates the render products and the mode is
+       configured as AUTO, this can change from DISABLED to WARPED after a frame locates
+       valid NVIDIA PQW extension data; query again after that frame. Quad-view AUTO remains
+       DISABLED. For application-provided products, the value follows the configured
+       policy until the first successful renderable bind reads their metadata.
+       After that bind (and after a successful bind following a resolution update),
+       this reports WARPED if any supplied product authors foveation and DISABLED
+       otherwise, regardless of the configured mode. Query again after bind.
+       local_foveated_rendering_enabled is false until supplied-product metadata
+       is read, and becomes authoritative on the same successful bind. */
     ovxr_local_foveation_mode_t local_foveation_mode;
 
     bool ar_blend_enabled;
@@ -629,6 +719,13 @@ typedef struct ovxr_frame_timing_t
     bool should_render;
 } ovxr_frame_timing_t;
 
+/*
+ * A successful ovxr_begin_frame() gives the caller one owning plan. Do not copy
+ * its frame handle into another owning plan or overwrite an unresolved plan.
+ * Submit or cancel it exactly once, including after its context is destroyed,
+ * and before unloading OVXR. Context destruction releases the frame's native
+ * resources but leaves a detached frame handle for this final disposal.
+ */
 typedef struct ovxr_frame_plan_t
 {
     ovxr_frame_t* frame;
@@ -638,21 +735,25 @@ typedef struct ovxr_frame_plan_t
      * The RenderProducts the frame's OVRTX step renders: OVXR's eye products
      * followed by the application products selected with
      * ovxr_set_frame_render_products(). Owned by OVXR. The array remains valid
-     * until ovxr_submit_frame() or ovxr_cancel_frame() consumes this plan. The
-     * consuming call clears this view before returning.
+     * until ovxr_submit_frame() or ovxr_cancel_frame() consumes this plan, or
+     * until its context is destroyed, whichever happens first. Context
+     * destruction invalidates this view even if its fields remain nonzero.
+     * A consuming call clears the view before returning.
      */
     ovrtx_render_product_set_t render_products;
 
     /*
-     * The OVRTX step result of the bound step. Zero until a renderable
-     * ovxr_bind_frame() succeeds, and for frames the runtime asked not to
-     * render. Borrowed: OVXR owns it and destroys it in ovxr_submit_frame() /
-     * ovxr_cancel_frame(), which also clear this field. The step operation has
+     * The OVRTX step result of the bound step. OVRTX_INVALID_STEP_RESULT_HANDLE
+     * until a renderable ovxr_bind_frame() succeeds, and for frames the runtime
+     * asked not to render. Borrowed: OVXR owns it and destroys it when ovxr_submit_frame() /
+     * ovxr_cancel_frame() consumes the plan or its context is destroyed. Submit
+     * and cancel also clear this field; destruction invalidates the borrow even
+     * if the field remains nonzero. The step operation has
      * completed when bind returns, so ovrtx_fetch_results() and
      * ovrtx_map_render_var_output() may be used on it directly -- this is how an
      * application reads the outputs of its own render products. Every mapping
-     * must be unmapped before the consuming call. Never pass it to
-     * ovrtx_destroy_results(). Always zero in application-stepped mode
+     * must be unmapped before the consuming call or context destruction. Never
+     * pass it to ovrtx_destroy_results(). Always invalid in application-stepped mode
      * (ovxr_desc_t::application_steps_renderer), where the application owns
      * the step result it created.
      */
@@ -682,8 +783,10 @@ typedef struct ovxr_submit_desc_t
      * the ovrtx_step_with_stage() result for this frame, rendered at
      * plan->render_ordinal over plan->render_products. Required for a
      * renderable frame in that mode; OVXR reads it and the application waits
-     * for and destroys it after submit returns. Must be 0 otherwise -- OVXR
-     * owns the bound step result and a nonzero value is rejected.
+     * for and destroys it after submit returns. Must be
+     * OVRTX_INVALID_STEP_RESULT_HANDLE otherwise -- OVXR owns the bound step
+     * result and a valid application result is rejected. Use the typed handle
+     * from OVRTX, not a raw integer or a different handle kind.
      */
     ovrtx_step_result_handle_t step_result;
     /*
@@ -694,6 +797,13 @@ typedef struct ovxr_submit_desc_t
     const struct XrCompositionLayerBaseHeader* const* additional_layers;
     /* Zero submits only the scene. A nonzero count requires additional_layers. */
     uint32_t additional_layer_count;
+    /*
+     * Submit these application layers instead of the OVXR scene layer. This is
+     * for applications that compose a complete scene image using the borrowed
+     * bound-frame outputs. Requires at least one additional layer; false keeps
+     * the default append behavior. No-render frames still submit no layers.
+     */
+    bool replace_scene_layer;
 } ovxr_submit_desc_t;
 
 typedef struct ovxr_frame_result_t
@@ -797,6 +907,16 @@ typedef struct ovxr_pose_t
     ovxr_vector3_t position;
 } ovxr_pose_t;
 
+/* Value copy of one view cached by begin_frame and used by bind/submit.
+ * Pose is relative to get_openxr_handles().xr_space, in meters. FOV angles
+ * are radians in OpenXR order: left, right, up, down.
+ */
+typedef struct ovxr_frame_projection_view_t
+{
+    ovxr_pose_t pose;
+    float fov_angles[4];
+} ovxr_frame_projection_view_t;
+
 typedef struct ovxr_render_product_resolution_t
 {
     const char* render_product_path;
@@ -844,6 +964,45 @@ typedef struct ovxr_openxr_probe_result_t
     char d3d12_adapter_name[256];
     char message[256];
 } ovxr_openxr_probe_result_t;
+
+/* Outcome of ovxr_check_openxr_runtime(). */
+typedef enum ovxr_openxr_runtime_status_t
+{
+    /*
+     * No OpenXR runtime could be used: none is installed or selected, its
+     * service is stopped, it failed to create an instance, or it supports
+     * neither head-mounted nor handheld displays. Retrying will not help until
+     * the runtime is fixed.
+     */
+    OVXR_OPENXR_RUNTIME_UNAVAILABLE = 0,
+    /*
+     * The runtime is running but has no display device yet
+     * (XR_ERROR_FORM_FACTOR_UNAVAILABLE): no headset is connected, or a
+     * streaming runtime has no client. This is transient; a session created
+     * later can still succeed once a device appears.
+     */
+    OVXR_OPENXR_RUNTIME_NO_SYSTEM = 1,
+    /*
+     * The runtime created an instance and reported a head-mounted display, or a
+     * handheld display when it does not support head-mounted ones.
+     */
+    OVXR_OPENXR_RUNTIME_READY = 2,
+} ovxr_openxr_runtime_status_t;
+
+typedef struct ovxr_openxr_runtime_check_t
+{
+    ovxr_openxr_runtime_status_t status;
+    /* XrResult of the call that decided status; XR_SUCCESS when READY. */
+    int32_t last_xr_result;
+    /* XrInstanceProperties::runtimeVersion; 0 when no instance was created. */
+    uint64_t runtime_version;
+    /* Empty when no instance was created. */
+    char runtime_name[128];
+    /* Empty unless status is OVXR_OPENXR_RUNTIME_READY. */
+    char system_name[256];
+    /* One-line summary of the outcome, suitable for printing. */
+    char message[256];
+} ovxr_openxr_runtime_check_t;
 
 typedef struct ovxr_openxr_frame_result_t
 {
@@ -956,11 +1115,11 @@ typedef struct ovxr_frame_view_t
 {
     /*
      * Device pointer to a tightly packed (pitch_bytes = width*4) image on
-     * cuda_device_id, owned by OVXR. The copy is complete and host-synchronized
+     * cuda_device_id, owned by OVXR. GPU completion has been confirmed
      * before this view is published, so the contents are safe to read from any
      * thread or stream. The application must not free or write the buffer. OVXR
-     * double-buffers it, so the pointer remains valid until capture of sequence
-     * + 2 begins, and only while the context lives. Copy or consume it before
+     * triple-buffers it, so the pointer remains valid until capture of sequence
+     * + 3 begins, and only while the context lives. Copy or consume it before
      * allowing two more frames to be submitted.
      */
     const void* device_ptr;
@@ -995,10 +1154,40 @@ typedef struct ovxr_frame_view_t
  *   ovxr_destroy(). It only requests the runtime transition; session-state
  *   pumping, xrEndSession, and destruction remain on the owning frame thread.
  * - ovxr_destroy() is exclusive: no call may be in progress and no new call
- *   may begin once destruction starts.
+ *   may begin once destruction starts. After destruction returns, the frame-plan
+ *   entry points may only reject or dispose surviving plans as documented below.
  * - Different contexts are independent, but callers remain responsible for
  *   synchronizing any borrowed renderer or OVStage shared between them.
  */
+
+/*
+ * Checks whether an OpenXR runtime is usable, without a context. Creates a
+ * temporary OpenXR instance with no extensions, asks it for a head-mounted
+ * display system, and destroys the instance before returning. A runtime that
+ * rejects head-mounted displays (XR_ERROR_FORM_FACTOR_UNSUPPORTED) is asked for
+ * a handheld display instead, matching the system lookup a context performs.
+ *
+ * It needs no renderer, OVStage, or ovrtx_initialize(), so an application can
+ * call it before that comparatively expensive startup and fail fast when
+ * out_info->status is OVXR_OPENXR_RUNTIME_UNAVAILABLE. Treat
+ * OVXR_OPENXR_RUNTIME_NO_SYSTEM as transient rather than fatal: a streaming
+ * runtime typically reports it until its client connects, and the frame loop
+ * returns OVXR_NOT_READY until then.
+ *
+ * Call it before ovxr_create(); it does not touch existing contexts, but a
+ * runtime may refuse a second instance while another is alive in the process.
+ * It does not load the OVXR implementation library or need the ovrtx and
+ * ovstage runtimes: it uses the OpenXR loader shipped beside the OVXR library.
+ * When no runtime is found the OpenXR loader may print its own diagnostics to
+ * stderr.
+ *
+ * application_name may be NULL. Returns OVXR_SUCCESS whenever out_info was
+ * filled, whatever its status; OVXR_ERROR when out_info is NULL or the OpenXR
+ * loader could not be loaded (see ovxr_get_last_error()).
+ * Threading: may be called from any thread.
+ */
+OVXR_API ovxr_result_t ovxr_check_openxr_runtime(const char* application_name,
+    ovxr_openxr_runtime_check_t* out_info);
 
 /*
  * Creates an OVXR context over the borrowed renderer and required OVStage.
@@ -1038,9 +1227,20 @@ OVXR_API ovxr_result_t ovxr_request_exit(ovxr_context_t* context);
  * instance -- are logged by ovxr_destroy rather than returned, because they say
  * nothing about the ordinal the caller has to reconcile. Destruction of the
  * context, its OpenXR objects and its GPU resources always completes either
- * way. If the diagnostic reports unresolved Stage writes, the borrowed Stage
+ * way once destruction begins. A reentrant call from an OpenXR callback is
+ * rejected before destruction begins and leaves the context owned by the caller.
+ * If the diagnostic reports unresolved Stage writes, the borrowed Stage
  * must not be published or reused: an earlier rollback failed, so advancing its
  * floor could expose a partial transaction.
+ *
+ * Any outstanding OVXR-owned frame operation is drained and its OpenXR frame
+ * discarded before Stage and session teardown. Unmap every application mapping
+ * of plan->step_result before destruction. Application-stepped results remain
+ * caller-owned and must be completed and released by the application.
+ * Surviving plans retain only detached frame handles: their render_products and
+ * step_result borrows expire here, even if those fields are still nonzero.
+ * The caller must still submit or cancel each plan to release its frame handle
+ * before unloading OVXR. See the post-destruction contracts below.
  * Threading: exclusive; see the threading contract above.
  */
 OVXR_API ovxr_result_t ovxr_destroy(ovxr_context_t* context, ovstage_ordinal_t stage_ordinal);
@@ -1059,6 +1259,21 @@ OVXR_API ovxr_result_t ovxr_get_openxr_handles(ovxr_context_t* context, ovxr_ope
  * Threading: serialize with all non-acquire calls on the same context.
  */
 OVXR_API ovxr_result_t ovxr_get_vulkan_handles(ovxr_context_t* context, ovxr_vulkan_handles_t* out_handles);
+
+/* Observe every event consumed by OVXR, once and in runtime order, after its
+ * internal handling (including events that cause that handling to fail).
+ * Delivery runs on the thread polling events through an OVXR operation,
+ * including teardown. No events are replayed when registering a callback.
+ * One observer per context; replacing it takes effect on the next event. Pass
+ * NULL to unregister. Serialize registration with other context operations.
+ * Reentering an API on this context from its callback is rejected; cancel is a
+ * no-op with an error diagnostic. Global error access and other contexts remain
+ * available. Observers cannot consume/suppress internal handling. Do not throw:
+ * a C++ exception disables the observer and leaves internal handling intact.
+ * After unregister or destroy returns, the callback/user_data can be released.
+ */
+OVXR_API ovxr_result_t ovxr_set_openxr_event_callback(
+    ovxr_context_t* context, ovxr_openxr_event_callback_t callback, void* user_data);
 
 /*
  * Returns OVXR_NOT_READY until the OpenXR and ovRTX render GPU topology has
@@ -1101,14 +1316,40 @@ OVXR_API ovxr_result_t ovxr_set_frame_render_products(
     size_t render_product_count);
 
 /*
- * Begin a frame and return its plan. This waits/begins/locates OpenXR but does
- * not write or read mutable OVStage state. out_plan is cleared before any
- * return. On success, it owns an active frame that must next be passed to
+ * Wait for, begin and locate the next OpenXR frame and return its plan. With
+ * application_steps_renderer, the wait runs on an internal thread instead and
+ * this call only starts or polls it: OVXR_NOT_READY then also means
+ * xrWaitFrame is still pending, and the first call for each frame normally
+ * returns it, so the application can run auxiliary-only steps meanwhile.
+ * Without application_steps_renderer the call blocks in xrWaitFrame.
+ * This does not write or read mutable OVStage
+ * state. out_plan is cleared before any return. On success, it owns an active frame that must next be passed to
  * ovxr_bind_frame() inside the application's Stage-publication rendezvous,
  * then to ovxr_submit_frame(), or be passed to ovxr_cancel_frame().
+ * Keep one owning plan until it is consumed; destroying the context does not
+ * release the plan's detached frame handle for the caller.
  * Threading: serialize with all non-acquire calls on the same context.
  */
 OVXR_API ovxr_result_t ovxr_begin_frame(ovxr_context_t* context, ovxr_frame_plan_t* out_plan);
+
+/*
+ * Copy the exact projection views of an active, successfully bound frame.
+ * No new xrLocateViews call is made: these poses/FOV describe the bound
+ * renderer color/depth, even if a later runtime prediction changes.
+ * out_view_count is required and is cleared on invalid arguments. Query the
+ * required count with capacity=0 and out_views=NULL; insufficient capacity
+ * reports OVXR_ERROR and the required count without partially copying.
+ * Returns OVXR_NOT_READY before a successful bind; a bound no-render frame
+ * succeeds with zero views. Consumed plans and plans from another context are
+ * invalid. Copies remain usable after submit/cancel, but only describe that
+ * frame, not a later one. Serialize with non-acquire calls on this context.
+ */
+OVXR_API ovxr_result_t ovxr_get_frame_projection_views(
+    ovxr_context_t* context,
+    const ovxr_frame_plan_t* plan,
+    uint32_t capacity,
+    ovxr_frame_projection_view_t* out_views,
+    uint32_t* out_view_count);
 
 /*
  * Publish the OpenXR view state cached by ovxr_begin_frame() at stage_ordinal,
@@ -1124,11 +1365,23 @@ OVXR_API ovxr_result_t ovxr_begin_frame(ovxr_context_t* context, ovxr_frame_plan
  * The step renders plan->render_products: OVXR's eye products followed by the
  * application products selected with ovxr_set_frame_render_products(). On a
  * renderable success plan->step_result borrows the resulting OVRTX step result
- * until ovxr_submit_frame() or ovxr_cancel_frame() consumes the plan; see
+ * until ovxr_submit_frame() or ovxr_cancel_frame() consumes the plan, or until
+ * context destruction, whichever happens first; see
  * ovxr_frame_plan_t for what the application may do with it. In
  * application-stepped mode (ovxr_desc_t::application_steps_renderer) the call
  * stops after sealing and reading the floor into plan->render_ordinal: the
  * application performs the update and step at that ordinal before submit.
+ *
+ * A renderable bind resumes the eye cameras by publishing signed int32
+ * omni:sensor:frameLimit = -1 with their poses. Applications stepping the
+ * renderer between XR frames must keep the eye products in the step set and
+ * publish signed int32 frameLimit = 0 on those cameras before every step that
+ * has no renderable bound XR frame, including pending polls and canceled frames.
+ * Use application-owned ordinals and the Stage-publication rendezvous for these
+ * writes. Polling, submission and cancellation do not publish a pause; the
+ * application must do so before another auxiliary-only step. Resume with the
+ * next renderable bind. A camera cut or expired scene
+ * transform history may also require ovrtx_clear_history() before resuming.
  *
  * out_stage_ordinal_sealed reports whether stage_ordinal was sealed, and is
  * written on every return path. It must be non-null whenever stage_ordinal is
@@ -1142,7 +1395,7 @@ OVXR_API ovxr_result_t ovxr_begin_frame(ovxr_context_t* context, ovxr_frame_plan
  * and continue from a fresh one.
  *
  * OVXR_NOT_READY leaves the plan active without consuming stage_ordinal: OpenXR
- * located-view data is still pending for runtime PQW authoring, so nothing was
+ * located-view data is still pending for NVIDIA PQW extension authoring, so nothing was
  * written or sealed (out_stage_ordinal_sealed is false). A plan's located view
  * data is fixed by the ovxr_begin_frame() that produced it, so binding the same
  * plan again cannot clear this: cancel the plan, call ovxr_begin_frame() again,
@@ -1159,13 +1412,19 @@ OVXR_API ovxr_result_t ovxr_begin_frame(ovxr_context_t* context, ovxr_frame_plan
  * Stage-publication rendezvous, with an ordinal it owns and every earlier
  * ordinal already resolved (see "OVStage ordinals").
  *
- * Calling this explicitly is only required by applications that co-write the
- * OVStage and need the stage-touching work bounded by their own lock and
- * ordinal. A sole writer may go straight from ovxr_begin_frame() to
+ * In OVXR-stepped mode, successful renderable bind exposes the borrowed result in
+ * plan->step_result for read-only OVRTX output mapping (including XRDepth).
+ * Finish all reads and unmap before submit/cancel; never destroy this result.
+ * Calling this explicitly is required by output readers and applications that
+ * co-write the OVStage and bound stage work by their own lock and ordinal.
+ * Other sole writers may go straight from ovxr_begin_frame() to
  * ovxr_submit_frame(), which binds an unbound plan itself at
  * plan->timing.suggested_delta_time_seconds and a private ordinal; pass a
  * delta_time_seconds of 0, a stage_ordinal of 0 and a null
  * out_stage_ordinal_sealed here for the same effect.
+ * If the plan's context has already been destroyed, this returns OVXR_ERROR
+ * without consuming the plan or accessing its expired borrows. Cancel or submit
+ * the plan to release its detached frame handle; it cannot be bound again.
  * Threading: serialize with all non-acquire calls on the same context.
  */
 OVXR_API ovxr_result_t ovxr_bind_frame(
@@ -1190,15 +1449,23 @@ OVXR_API ovxr_result_t ovxr_bind_frame(
  * Only in application-stepped mode (ovxr_desc_t::application_steps_renderer)
  * does the caller supply the result, through submit_desc->step_result, and
  * then it also owns its lifetime; that mode requires an explicit
- * ovxr_bind_frame() first, so the implicit bind below is rejected. Validation
- * errors leave the plan active so the caller can correct the input or cancel it. Once OVXR accepts
+ * ovxr_bind_frame() first, so the implicit bind below is rejected. With a live
+ * owning context, validation errors leave the plan active so the caller can
+ * correct the input or cancel it. Once OVXR accepts
  * ownership, the frame is consumed on every return path, including errors, and
  * plan->frame, plan->render_products and plan->step_result are cleared.
+ * If the owning context has already been destroyed, submission instead returns
+ * OVXR_ERROR and consumes and clears the detached plan. It does not access the
+ * former context, expired borrowed views, or a caller-owned step result.
  *
  * submit_desc may be NULL. submit_desc->additional_layers optionally appends
  * application-owned OpenXR composition layers (projection, quad, or enabled
  * extension layer types) after the OVXR scene layer; a count of zero submits
- * only the scene. The array, the layers, their views and next chains must
+ * only the scene. Set replace_scene_layer to submit the provided layers INSTEAD
+ * of the scene, for a fully composed application image (requires nonzero count).
+ * This changes submission only: bind still renders the scene and frame readback
+ * still returns the original OVRTX output. No-render frames submit no layers.
+ * The array, the layers, their views and next chains must
  * remain valid until this call returns. Their spaces and swapchains must
  * belong to the shared session (see ovxr_get_openxr_handles() and
  * ovxr_get_vulkan_handles()). The caller creates, acquires, waits, renders and
@@ -1206,7 +1473,7 @@ OVXR_API ovxr_result_t ovxr_bind_frame(
  * before this call; OVXR neither touches their images nor synchronizes the
  * application's GPU work, and remains the only caller of
  * xrWaitFrame/xrBeginFrame/xrEndFrame. The runtime's maxLayerCount includes
- * the OVXR scene layer. Invalid arrays and counts are rejected before the plan
+ * the OVXR scene layer unless replaced. Invalid arrays and counts are rejected before the plan
  * is consumed (and before an implicit bind); OpenXR validates layer contents
  * during submission. If should_render is false or OVXR's views are invalid,
  * all layers are omitted and the frame is ended without rendering. Readback
@@ -1223,10 +1490,58 @@ OVXR_API ovxr_result_t ovxr_submit_frame(
  * Cancel and consume a plan returned by ovxr_begin_frame(), draining any OVRTX
  * operation started by a failed bind. A valid plan has plan->frame,
  * plan->render_products and plan->step_result cleared before this call
- * returns. Invalid arguments leave the plan unchanged.
- * Threading: serialize with all non-acquire calls on the same context.
+ * returns. Invalid arguments leave a live-context plan unchanged.
+ * If the owning context has already been destroyed, cancellation releases only
+ * the detached frame handle and clears the plan. context may be NULL in this
+ * case; a supplied former context pointer is ignored without dereferencing it.
+ * Threading: serialize with all non-acquire calls on the same context, and do
+ * not overlap context destruction. A detached plan may be cancelled after
+ * destruction returns.
  */
 OVXR_API void ovxr_cancel_frame(ovxr_context_t* context, ovxr_frame_plan_t* plan);
+
+/* What ovxr_warm_up() did. */
+typedef struct ovxr_warm_up_result_t
+{
+    /* OVRTX steps run; the first includes the renderer's first-frame work. */
+    uint32_t step_count;
+    /* OpenXR frames ended with no layers while the renderer worked. */
+    uint32_t keep_alive_frame_count;
+    /* Wall time of the whole call, its first step and its last step. */
+    double duration_seconds;
+    double first_step_seconds;
+    double last_step_seconds;
+} ovxr_warm_up_result_t;
+
+/*
+ * Optional. Render the scene once before the first displayed frame, outside any
+ * open OpenXR frame. ovRTX's first step for a render product does the slow
+ * first-frame work -- shader and material compilation, waiting for scene
+ * loading, and initial quality accumulation -- and can take seconds. Inside an
+ * OpenXR frame (xrBeginFrame..xrEndFrame) that duration makes the runtime
+ * throttle xrWaitFrame for many following frames; outside one, with frames
+ * still submitted at the runtime's cadence, it does not.
+ *
+ * Call after ovxr_create() and before the first ovxr_begin_frame() or
+ * ovxr_render_frame(), with no frame in flight. The call waits for a renderable
+ * OpenXR frame, authors and seals the frame's OVStage state at stage_ordinal
+ * exactly as ovxr_bind_frame() would, ends that OpenXR frame with no layers,
+ * and then steps the renderer until a step completes within two display
+ * periods (at most eight steps). While each OVRTX operation runs it submits
+ * empty OpenXR frames at the runtime's cadence. Step results are discarded.
+ *
+ * stage_ordinal and out_stage_ordinal_sealed follow ovxr_bind_frame().
+ * out_result is optional. Returns OVXR_NOT_READY if the session produces no
+ * renderable frame within 30 seconds (for example, a headset that is not
+ * worn); the application may call it again or start its frame loop.
+ * Unavailable (OVXR_ERROR) with application_steps_renderer.
+ * Threading: serialize with all non-acquire calls on the same context.
+ */
+OVXR_API ovxr_result_t ovxr_warm_up(
+    ovxr_context_t* context,
+    ovstage_ordinal_t stage_ordinal,
+    bool* out_stage_ordinal_sealed,
+    ovxr_warm_up_result_t* out_result);
 
 /*
  * Convenience frame path. The renderer supplied in the context descriptor
@@ -1257,8 +1572,13 @@ OVXR_API ovxr_result_t ovxr_render_frame(
     bool* out_stage_ordinal_sealed);
 
 /*
- * Fill out_view with the most recently captured render-product color frame.
- * Returns OVXR_NOT_READY when capture is disabled or no frame has been captured,
+ * Fill out_view with the most recently published render-product color frame.
+ * Completion and mapping retirement run on the render thread during frame begin,
+ * submission, and cancellation. Acquisition only reads the published view; it does
+ * not poll CUDA, call OVRTX, or wait for capture/retirement. If frame calls stop,
+ * pending resources remain until the next frame call or context destruction.
+ * Busy readback skips new captures and retains the last completed view.
+ * Returns OVXR_NOT_READY when readback is not enabled or no frame has been published,
  * and OVXR_ERROR for invalid arguments. The referenced device buffer is owned by
  * OVXR; see ovxr_frame_view_t::device_ptr for its lifetime. Safe to call from
  * any thread after ovxr_create returns and before ovxr_destroy begins.
@@ -1334,6 +1654,13 @@ OVXR_API ovxr_result_t ovxr_update_prim_transforms(
  * through the borrowed OVStage. This uses upsert-style authoring and does not
  * validate that every RenderProduct prim already exists. Callers that need typo
  * detection or strict must-exist behavior must prevalidate through OVStage.
+ * Supplied eye products must be resized through this API, before binding the
+ * frame that renders the new size. Direct OVStage resolution writes are not
+ * detected. Already-bound frames retain their previous transform geometry.
+ * A successful update invalidates supplied-product foveation validation,
+ * including a cached PQW mismatch. The next renderable bind reads the sealed
+ * dimensions and validates them; restoring compatible dimensions can recover
+ * without recreating the context. A failed update does not clear the error.
  * Threading: serialize with all non-acquire calls on the same context.
  */
 OVXR_API ovxr_result_t ovxr_update_render_product_resolutions(
@@ -1599,13 +1926,18 @@ OVXR_API ovxr_result_t ovxr_set_log_callback(ovxr_log_severity_t severity,
  * library if that has not already happened, since the opt-out state lives there; calling it therefore
  * brings the implementation's dependency graph forward from the first ovxr_create() to this call.
  *
- * Note that if the `OVX_PHONE_HOME_OPT_OUT` environment variable is defined and set to `1` for this
- * process, this call will be unnecessary. The environment variable based opt-out will always
+ * Note that if the `NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED` environment variable is defined and
+ * set to `1` for this process, this call will be unnecessary. `OVX_PHONE_HOME_OPT_OUT=1`, its former
+ * name, is deprecated but still honored the same way. The environment variable based opt-out will always
  * override the programmatic opt-out for the process: once observed it stays in effect for the
  * lifetime of the process, and no OVXR call can clear it. When used, this environment variable is
  * expected to be defined for the process at launch time. Defining it programmatically with a call
  * such as `setenv()` is strongly discouraged since that can lead to a race condition crash on Linux
  * due to a known bug in the environment variable functions in glibc in versions earlier than 2.41.
+ *
+ * OVRTX, which OVXR renders through, sends its own separate report under the name `ovrtx`. This call
+ * does not opt out of that one; OVRTX has its own ovrtx_library_telemetry_opt_out(), and
+ * `NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1` covers all OV libraries used by the process.
  *
  * The startup event parameters contain the OVXR library name and version. The surrounding request
  * also includes a UTC timestamp, the library build variant (`clientVariant`: `"Release"`, or
@@ -1615,7 +1947,7 @@ OVXR_API ovxr_result_t ovxr_set_log_callback(ovxr_log_severity_t severity,
  * The message is sent as plain-text JSON over an HTTP connection, with no encryption or obfuscation
  * of the body or the headers, and nothing is written to disk.
  *
- * Note that this phone-home message will *never* contain any of the following information:
+ * Note that this startup report will *never* contain any of the following information:
  *   * a user name, user ID, email address, real name, or geographical location.
  *   * any information about the process including process ID, host app name, module names, etc.
  *   * any personal information about a user.

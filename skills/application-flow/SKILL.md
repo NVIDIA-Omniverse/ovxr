@@ -17,7 +17,7 @@ Requires a matched distributed OVXR, OVRTX and OVStage SDK and a supported OpenX
 
 ## Instructions
 
-The application creates and owns the renderer and stage. Follow the public README quick start: construct `RendererConfig(read_gpu_transforms=True, keep_system_alive=True)` before the renderer. Create the stage under OVStage's default `NONDECREASING` ordinal admission policy, or select `NONDECREASING` or `FLOOR_ONLY` first; OVXR 0.1 rejects `STRICTLY_INCREASING` (see [stage-publication](../stage-publication/SKILL.md)). Attach that stage to the renderer, populate and publish content, create OVXR over both borrowed objects, drive one frame path, then destroy OVXR before the renderer and stage.
+The application creates and owns the renderer and stage. Follow the public README quick start: construct `RendererConfig(read_gpu_transforms=True, keep_system_alive=True)` before the renderer. Create the stage under OVStage's default `NONDECREASING` ordinal admission policy, or select `NONDECREASING` or `FLOOR_ONLY` first; OVXR rejects `STRICTLY_INCREASING` (see [stage-publication](../stage-publication/SKILL.md)). Attach that stage to the renderer, populate and publish content, create OVXR over both borrowed objects, drive one frame path, then destroy OVXR before the renderer and stage.
 
 Choose the context's ordinal mode before rendering: [stage-publication](../stage-publication/SKILL.md) distinguishes a sole writer from an embedding app that co-writes the stage. Use [frame-loop](../frame-loop/SKILL.md) for convenience or split scheduling. Keep one OpenXR frame owner. Default mode lets OVXR step the renderer; an SDK's documented application-stepped opt-in changes step ownership as described by frame-loop.
 
@@ -32,3 +32,9 @@ Use `ovxr_probe_openxr()` or `Context.probe_openxr()` to report runtime, system,
 ## Examples
 
 For a minimal stereo host, populate the borrowed stage, attach it to the renderer, create one OVXR context and drive one frame path. Quiesce consumers and destroy OVXR before its borrowed owners.
+
+
+## Examples and validation
+
+Use [minimal-xr](../../examples/python/minimal-xr/README.md#adapting-this-sample), [runtime-lifecycle](../../examples/python/runtime-lifecycle/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#application-flow) for the automated checks associated with this guidance.

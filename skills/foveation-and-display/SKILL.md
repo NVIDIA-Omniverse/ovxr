@@ -36,3 +36,9 @@ PQW/vendor warp definitions come from the runtime owner. Core OpenXR or an image
 ## Examples
 
 For a desktop companion to a warped headset session, request the supported capture domain independently. Measure actual output; an unwarped mirror does not prove rectilinear headset submission.
+
+
+## Examples and validation
+
+Use [foveation](../../examples/python/foveation/README.md#adapting-this-sample), [view-configuration](../../examples/python/view-configuration/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#foveation-and-display) for the automated checks associated with this guidance.

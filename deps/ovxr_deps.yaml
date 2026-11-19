@@ -1,37 +1,33 @@
-version: 0.1.0.5842
+version: 0.2.0.1794933073
 ovrtx:
-  version: 0.6.0.1791947691
-  version_full: 0.6.0.1791947691.c6d71501
-  source_sha: c6d715014279c2021e874067eb65ebe0c4fe75e8
-  c_package_sha256:
-    windows-x86_64: 96de03fdcbee3a398f059f1ffb15a3d8f30bb8bcc6ae5d84a08e8875769ce296
-    linux-x86_64: 63639c3eabaf31553dbf883ac2376d8b6e361806dee4e17bafaa0962ce23dd51
-    linux-aarch64: c91048d75743a06cf887031721d37508564c853e321a92ec3bfb6ec7a74bc568
-  python_package_sha256:
-    windows-x86_64: 90188e5a762b01f4d84d66b84858d28f21eaf3a7ef3ad4dfb9a7bf860ff3e67e
-    linux-x86_64: b56ee8687f7e9c2934bc2da5ce7aecbd3ef6e8123a43e0573f1f33b8db5fc3c7
+  version: 0.7.0.1794596436
+  version_full: 0.7.0.1794596436.0f2886e1
+  source_sha: 0f2886e1e89634f3f446a653e79666ad7a3aa01f
   c_packages:
-    windows-x86_64: https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.6.0/ovrtx@0.6.0.1791947691.c6d71501.windows-x86_64.zip
-    linux-x86_64: https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.6.0/ovrtx@0.6.0.1791947691.c6d71501.manylinux_2_35_x86_64.zip
-    linux-aarch64: https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.6.0/ovrtx@0.6.0.1791947691.c6d71501.manylinux_2_35_aarch64.zip
+    linux-x86_64: https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.7.0/ovrtx@0.7.0.1794596436.0f2886e1.manylinux_2_35_x86_64.zip
+    windows-x86_64: https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.7.0/ovrtx@0.7.0.1794596436.0f2886e1.windows-x86_64.zip
+  c_package_sha256:
+    linux-x86_64: 6aa6da398dd0a79aec8adfe06ab720d4e46ca4af28db68dbe4e3418dab6ec1cb
+    windows-x86_64: 6e8eac1e216907a9498e34956ecec0285dde04be1c01167ce4102f65c8c94086
   python_packages:
-    windows-x86_64: https://pypi.nvidia.com/ovrtx/ovrtx-0.6.0.1791947691-py3-none-win_amd64.whl
-    linux-x86_64: https://pypi.nvidia.com/ovrtx/ovrtx-0.6.0.1791947691-py3-none-manylinux_2_35_x86_64.whl
+    linux-x86_64: https://pypi.nvidia.com/ovrtx/ovrtx-0.7.0.1794596436-py3-none-manylinux_2_35_x86_64.whl
+    windows-x86_64: https://pypi.nvidia.com/ovrtx/ovrtx-0.7.0.1794596436-py3-none-win_amd64.whl
+  python_package_sha256:
+    linux-x86_64: 1e36c2e6d892650cdc46edb58ebfd668addb5b7fd3b0b15fe9f32b1b9b12c0ee
+    windows-x86_64: fc5407494f95c91d01692913d7424b6cbe00d64242589989352971aebfc4170b
 ovstage:
-  version: 0.3.0.1791986420
-  version_full: 0.3.0.1791986420.36fe3c44
-  source_sha: 36fe3c446bb7f8171aa6ddf8b598ca9a69828c64
-  c_package_sha256:
-    windows-x86_64: 007cd7ef776415c95342985fcf60ba89aa4222a07c914fdd314acb860e0b95a5
-    linux-x86_64: 922a64c3583040ea3ab3262c0e95aa4ac642bef8676b43a02fa262ea14adc387
-    linux-aarch64: 14d8815694779799768480eaded48ae3c401ab128eca7e18ea2c3f30e385a307
-  python_package_sha256:
-    windows-x86_64: 400df4b7dc916edefa6f832aa11b674deb8a4d6831bba9ad3849169236b80c46
-    linux-x86_64: 35aa0c10c47549c495e65896356ce3b910041d2eaa602888f092f7e300586cf8
+  version: 0.4.0.1794520352
+  version_full: 0.4.0.1794520352.987892c3
+  source_sha: 987892c35defa5ed89f2adbce71e30e8e1585c88
   c_packages:
-    windows-x86_64: https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.windows-x86_64.zip
-    linux-x86_64: https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.manylinux_2_35_x86_64.zip
-    linux-aarch64: https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.manylinux_2_35_aarch64.zip
+    linux-x86_64: https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.4.0/ovstage@0.4.0.1794520352.987892c3.manylinux_2_35_x86_64.zip
+    windows-x86_64: https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.4.0/ovstage@0.4.0.1794520352.987892c3.windows-x86_64.zip
+  c_package_sha256:
+    linux-x86_64: e39fc83dce13cd2818bc43448d27137f1659511a2d2f91a66bff263a23a6a4dd
+    windows-x86_64: aef6b5c24fe220e888cf0021638d5e7ba9947f3fc09cde8ca5bb2e0dc11fc707
   python_packages:
-    windows-x86_64: https://pypi.nvidia.com/ovstage/ovstage-0.3.0.1791986420-py3-none-win_amd64.whl
-    linux-x86_64: https://pypi.nvidia.com/ovstage/ovstage-0.3.0.1791986420-py3-none-manylinux_2_35_x86_64.whl
+    linux-x86_64: https://pypi.nvidia.com/ovstage/ovstage-0.4.0.1794520352-py3-none-manylinux_2_35_x86_64.whl
+    windows-x86_64: https://pypi.nvidia.com/ovstage/ovstage-0.4.0.1794520352-py3-none-win_amd64.whl
+  python_package_sha256:
+    linux-x86_64: 7473a79763af4f8fe8dc70cbd4d99468d822a8f96a0c58891c25801390958f0a
+    windows-x86_64: c611727f27ba21222649137ffaed83c35ece44374e8e6686c660d1fa21b2d4ab

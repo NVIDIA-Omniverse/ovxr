@@ -26,12 +26,13 @@ import ctypes
 import warnings
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Optional
+from typing import Callable, Optional
 
 from . import bindings as _b
 from .bindings import (
     Bindings,
     FrameFormat,
+    OpenXrRuntimeStatus,
     ReferenceSpaceType,
     Result,
     SceneInfoPolicy,
@@ -52,6 +53,7 @@ from .bindings import (
     ovxr_submit_desc_t,
     ovxr_vector3_t,
     ovxr_settings_t,
+    ovxr_warm_up_result_t,
     ovx_string_t,
     result_name,
 )
@@ -94,6 +96,42 @@ class OvxrError(RuntimeError):
 
 class FrameExpiredError(RuntimeError):
     """Raised when an expired :class:`Frame` is asked for its CUDA pointer."""
+
+
+@dataclass
+class _OpenXrCallbackState:
+    """Shared with the trampoline without keeping its Context alive."""
+
+    active: bool = False
+    pending_exception: Optional[BaseException] = None
+
+    def report(self, error: BaseException, prefix: str) -> None:
+        if isinstance(error, Exception):
+            try:
+                warnings.warn(f"{prefix}: {error}", RuntimeWarning, stacklevel=2)
+            except Exception:
+                pass  # Warning filters must not unwind through ctypes.
+            except BaseException as interrupted:
+                self.defer(interrupted)
+        else:
+            self.defer(error)
+
+    def defer(self, error: BaseException) -> None:
+        if self.pending_exception is None:
+            # Do not retain callback frames and their borrowed native pointers.
+            self.pending_exception = error.with_traceback(None)
+
+    @property
+    def has_pending(self) -> bool:
+        return not self.active and self.pending_exception is not None
+
+    def raise_pending(self, outcome=None) -> None:
+        if self.has_pending:
+            error, self.pending_exception = self.pending_exception, None
+            if outcome is not None:
+                error.ovxr_outcome = outcome
+                error.ordinal_sealed = outcome[2]
+            raise error
 
 
 class _FrameLifetime:
@@ -241,6 +279,19 @@ class Frame:
 
 
 @dataclass(frozen=True)
+class OpenXrEvent:
+    """A copied OpenXR event buffer and its XrStructureType integer.
+
+    Decode ``data`` with matching OpenXR ctypes definitions. Pointer fields in
+    the buffer remain borrowed and must only be dereferenced during delivery;
+    the bytes do not deep-copy extension-owned pointees.
+    """
+
+    type: int
+    data: bytes
+
+
+@dataclass(frozen=True)
 class OpenXrProbe:
     """Decoded OpenXR/Vulkan discovery snapshot from :meth:`Context.probe_openxr`.
 
@@ -282,6 +333,64 @@ class OpenXrProbe:
             session_created=bool(probe.session_created),
             raw=probe,
         )
+
+
+@dataclass(frozen=True)
+class OpenXrRuntimeCheck:
+    """Decoded outcome of :func:`check_openxr_runtime`.
+
+    Attributes:
+        status: :attr:`OpenXrRuntimeStatus.UNAVAILABLE` when no runtime can be
+            used, :attr:`OpenXrRuntimeStatus.NO_SYSTEM` when the runtime runs but
+            has no headset or client yet (transient), or
+            :attr:`OpenXrRuntimeStatus.READY`.
+        runtime_name: Active OpenXR runtime; empty when none could be loaded.
+        system_name: Headset / simulator name; empty unless ready.
+        message: One-line summary of the outcome, suitable for printing.
+        last_xr_result: ``XrResult`` of the call that decided :attr:`status`.
+        runtime_version: Packed ``XrVersion`` of the runtime, or 0.
+    """
+
+    status: OpenXrRuntimeStatus
+    runtime_name: str
+    system_name: str
+    message: str
+    last_xr_result: int
+    runtime_version: int
+
+    @classmethod
+    def _from_c(cls, check) -> "OpenXrRuntimeCheck":
+        return cls(
+            status=OpenXrRuntimeStatus(check.status),
+            runtime_name=OpenXrProbe._decode(check.runtime_name),
+            system_name=OpenXrProbe._decode(check.system_name),
+            message=OpenXrProbe._decode(check.message),
+            last_xr_result=int(check.last_xr_result),
+            runtime_version=int(check.runtime_version),
+        )
+
+
+def check_openxr_runtime(application_name: Optional[str] = None) -> OpenXrRuntimeCheck:
+    """``ovxr_check_openxr_runtime`` — is an OpenXR runtime usable right now?
+
+    Creates and destroys a temporary OpenXR instance without a :class:`Context`,
+    renderer, or stage, so an application can fail fast before loading a scene
+    when the result's :attr:`~OpenXrRuntimeCheck.status` is
+    :attr:`OpenXrRuntimeStatus.UNAVAILABLE`. Treat
+    :attr:`OpenXrRuntimeStatus.NO_SYSTEM` as transient: a streaming runtime
+    reports it until its client connects. Call it before creating a context.
+    See ``ovxr.h`` for the full contract.
+
+    It loads libovxr and the borrowed ovrtx and ovstage runtimes like
+    :func:`load`, raising the same errors, but neither starts ovrtx nor loads
+    the OVXR implementation library. Raises :class:`OvxrError` if the native
+    call fails, for example when the bundled OpenXR loader cannot be loaded.
+    """
+    bindings = _b._ovxr_loader.get_bindings()
+    rc, out = bindings.check_openxr_runtime(application_name)
+    if rc != Result.SUCCESS:
+        raise OvxrError(bindings.check_openxr_runtime.__name__, rc, bindings.get_last_error())
+    return OpenXrRuntimeCheck._from_c(out)
 
 
 @dataclass(frozen=True)
@@ -327,6 +436,24 @@ class OpenXrHandles:
             xr_reference_space_type=space_type,
             raw=handles,
         )
+
+
+@dataclass(frozen=True)
+class FrameProjectionView:
+    """Copied render-time view; meters in the shared tracking space.
+
+    FOV angles are radians ordered left, right, up, down. These immutable
+    values describe one bound frame and survive consumption of its plan.
+    """
+
+    position: tuple
+    orientation: tuple
+    fov_angles: tuple
+
+    @classmethod
+    def _from_c(cls, view):
+        p, q = view.pose.position, view.pose.orientation
+        return cls((p.x, p.y, p.z), (q.x, q.y, q.z, q.w), tuple(view.fov_angles))
 
 
 @dataclass(frozen=True)
@@ -513,7 +640,8 @@ class ContextDesc:
             default, which is enabled on Linux and disabled on other platforms.
             Set to 0 to disable this CPU wait, including for cross-GPU transfers;
             GPU-side synchronization still orders the transfer after rendering.
-        max_frames_in_flight: Frames ovxr may keep in flight.
+        max_frames_in_flight: Maximum unresolved frames, from 1 through 64. Zero
+            selects one.
         max_render_gpus: Reserved render-GPU limit. OVRTX currently chooses
             render-product placement.
         enable_debug_labels: Emit Vulkan/OpenXR debug labels.
@@ -567,7 +695,7 @@ class ContextDesc:
             from this stage; the caller owns the stage lifetime. The stage's
             process must use the ``NONDECREASING`` (default) or ``FLOOR_ONLY``
             ``ovstage.OrdinalAdmissionPolicy``; ``STRICTLY_INCREASING`` is not
-            supported in OVXR 0.1 and makes :class:`Context` creation fail.
+            supported in OVXR and makes :class:`Context` creation fail.
         scene_info_policy: Where OVXR resolves scene scale and up-axis from (a
             :class:`SceneInfoPolicy` value; OVStage metadata wins under ``AUTO``).
         enable_frame_readback: Capture one render product's color output for
@@ -713,7 +841,7 @@ class Context:
 
     Creation raises :class:`OvxrError` when the borrowed stage's process
     selected the ``STRICTLY_INCREASING`` OVStage ordinal admission policy,
-    which OVXR 0.1 does not support. Keep the ``NONDECREASING`` default or
+    which OVXR does not support. Keep the ``NONDECREASING`` default or
     select ``NONDECREASING`` / ``FLOOR_ONLY`` through ``ovstage.StageConfig``
     before anything else in the process creates an ``ovstage.Stage``.
 
@@ -730,16 +858,21 @@ class Context:
     """
 
     def __init__(self, desc: ContextDesc, bindings: Optional[Bindings] = None):
+        """Create a native context from ``desc`` using the selected bindings."""
         # Establish a fully destructible Python object before the native call:
         # allocation or conversion failures after ovxr_create must not strand
         # the returned native context.
         self._handle = None
+        self._openxr_callback_state = _OpenXrCallbackState()
         self._uses_explicit_stage_ordinals = int(desc.ordinal_mode) == StageOrdinalMode.APPLICATION
         self._bindings = bindings if bindings is not None else _b._ovxr_loader.get_bindings()
         c_desc, self._desc_keepalive = desc._to_c()
-        rc, handle = self._bindings.create(c_desc)
+        self._openxr_event_callback = None
+        operation = self._bindings.create
+        rc, handle = operation(c_desc)
         if rc != Result.SUCCESS or handle is None:
-            raise OvxrError("create", rc, self._bindings.get_last_error())
+            detail = self._bindings.get_last_error()
+            raise OvxrError(operation.__name__, rc, detail)
         self._handle = handle
         self._frame_lifetime = _FrameLifetime()
 
@@ -752,7 +885,7 @@ class Context:
         ending the session in ``STOPPING``, and destroying the context.
         """
         if getattr(self, "_handle", None) is not None:
-            self._check("request_exit", self._bindings.request_exit(self._handle))
+            self._call_checked(self._bindings.request_exit, self._handle)
 
     def destroy(self, stage_ordinal: Optional[int] = None) -> None:
         """Destroy the context (idempotent); must not overlap another method.
@@ -762,21 +895,37 @@ class Context:
         context created in application-ordinal mode must be destroyed explicitly
         with another caller-owned ordinal; automatic teardown cannot safely mint
         from the application's allocator.
+
+        Unmap borrowed ``plan.step_result`` outputs before destruction. Native
+        teardown drains OVXR-owned frame work and invalidates every plan's
+        borrowed views, but retained plans still need disposal: call
+        :meth:`cancel_frame` afterwards to release their detached frame handles.
+        Application-stepped results remain caller-owned and require independent
+        cleanup before destroying the borrowed renderer or Stage.
         """
+        if self._openxr_callback_state.active:
+            raise OvxrError("destroy", Result.ERROR, "Reentrant context call from OpenXR callback")
         if getattr(self, "_handle", None) is not None:
             ordinal = self._resolve_stage_ordinal(stage_ordinal)
             # Destroy natively first, then expire the frames. A rejected ordinal
             # or a Python/FFI exception raises before anything was destroyed, so
             # invalidating first would expire every live frame of a context that
             # still exists; the handle is also kept so cleanup can be retried.
-            rc = self._bindings.destroy(self._handle, ordinal)
+            operation = self._bindings.destroy
+            rc = operation(self._handle, ordinal)
             # Native destroy consumes the context even when its final Stage
-            # release fails.
-            self._frame_lifetime.invalidate_context()
-            self._handle = None
-            self._check("destroy", rc)
+            # release fails. Capture its error before cleanup, but expire the
+            # frames and clear the handle before the exception reaches callers.
+            try:
+                self._check(operation, rc)
+            finally:
+                self._frame_lifetime.invalidate_context()
+                self._handle = None
+                self._openxr_event_callback = None
+                self._openxr_callback_state.raise_pending()
 
     def __enter__(self) -> "Context":
+        """Enter the context manager only when this context owns its Stage ledger."""
         if self._uses_explicit_stage_ordinals:
             raise RuntimeError(
                 "the Context context-manager is only available in private-ledger mode; "
@@ -803,6 +952,7 @@ class Context:
                 # would hand out a device_ptr into released native resources.
                 self._frame_lifetime.invalidate_context()
                 self._handle = None
+                self._openxr_event_callback = None
             # Warned only after the cleanup above: warnings.warn() RAISES when
             # ResourceWarning is configured as an error (-W
             # error::ResourceWarning), and warning first meant that raise
@@ -825,11 +975,18 @@ class Context:
         """This thread's last ovxr error; safe to read without synchronization."""
         return self._bindings.get_last_error()
 
-    def _check(self, op: str, rc: int) -> None:
+    def _check(self, operation: Callable[..., object], rc: int) -> None:
+        """Raise for a failed result, preserving the callable name and native error."""
         if rc != Result.SUCCESS:
-            raise OvxrError(op, rc, self._bindings.get_last_error())
+            detail = self._bindings.get_last_error()
+            raise OvxrError(operation.__name__, rc, detail)
+
+    def _call_checked(self, operation: Callable[..., int], *args) -> None:
+        """Call a binding that returns a result code and raise if it fails."""
+        self._check(operation, operation(*args))
 
     def _resolve_stage_ordinal(self, stage_ordinal: Optional[int]) -> int:
+        """Validate an ordinal against the context's private or application ledger mode."""
         ordinal = check_ordinal(0 if stage_ordinal is None else stage_ordinal)
         if self._uses_explicit_stage_ordinals:
             if ordinal == 0:
@@ -855,28 +1012,81 @@ class Context:
         the same reason: this call can publish ``stage_ordinal`` and then fail.
 
         The frame's OVStage writes land at ``stage_ordinal`` (0 = private ledger;
-        see ``ovxr.h`` "OVStage ordinals"). Never raises: ``TIMEOUT`` (no client
+        see ``ovxr.h`` "OVStage ordinals"). Native failures return status codes: ``TIMEOUT`` (no client
         ready) and ``NOT_READY`` (session not up yet) are normal frame-loop states,
         and a transient hard error should not kill the loop — inspect ``result`` and
         :attr:`last_error`. ``delta_time_seconds == 0`` uses the runtime-suggested
-        frame delta; a negative or non-finite value is rejected.
+        frame delta; a negative or non-finite value is rejected. Process-control
+        exceptions raised inside an OpenXR callback are re-raised after native cleanup.
+        The exception carries ``ovxr_outcome = (result, frame_result, ordinal_sealed)``
+        and ``ordinal_sealed`` so application-ledger owners can reconcile the write.
 
         Serialize with non-acquire methods on this context.
         """
         ordinal = self._resolve_stage_ordinal(stage_ordinal)
         self._frame_lifetime.begin_capture_call()
+        outcome = None
         try:
             rc, out, sealed = self._bindings.render_frame(self._handle, delta_time_seconds, ordinal)
-            return Result(rc), out, sealed
+            outcome = Result(rc), out, sealed
+            return outcome
         finally:
             self._frame_lifetime.end_capture_call()
+            self._openxr_callback_state.raise_pending(outcome)
+
+    def warm_up(self, stage_ordinal: Optional[int] = None) -> "tuple[Result, ovxr_warm_up_result_t, bool]":
+        """``ovxr_warm_up`` — render once before the first displayed frame.
+
+        Optional. Call after construction and before the first frame. ovRTX's
+        first step for a render product (shader compilation, waiting for scene
+        loading, initial quality accumulation) can take seconds; inside an
+        OpenXR frame, that makes the runtime throttle many following frames.
+        This renders that step outside any OpenXR frame, submitting empty frames
+        at the runtime's cadence meanwhile, and discards the result.
+
+        Returns ``(result, warm_up_result, ordinal_sealed)``. ``stage_ordinal``
+        and ``ordinal_sealed`` follow :meth:`render_frame`. Native failures return
+        status codes; callback process-control exceptions propagate with the same
+        ``ovxr_outcome`` and ``ordinal_sealed`` attributes as :meth:`render_frame`.
+        ``NOT_READY`` means no renderable frame arrived within 30 seconds (for
+        example, the headset is not worn); the frame loop can start regardless.
+        Unavailable with ``application_steps_renderer``.
+
+        Serialize with non-acquire methods on this context.
+        """
+        ordinal = self._resolve_stage_ordinal(stage_ordinal)
+        outcome = None
+        try:
+            rc, out, sealed = self._bindings.warm_up(self._handle, ordinal)
+            outcome = Result(rc), out, sealed
+            return outcome
+        finally:
+            self._openxr_callback_state.raise_pending(outcome)
 
     def begin_frame(self):
         """Begin a split frame loop and return ``(result, frame_plan)``.
 
+        With ``application_steps_renderer=True``, start or poll an internal
+        OpenXR wait and return ``NOT_READY`` while it is pending. This is normal,
+        including on the first poll for each frame; no owning plan is returned
+        until success. The default OVXR-stepped mode waits synchronously.
+
+        On success, retain one owning plan until submit consumes it or cancel
+        releases it. Do not copy its owning frame handle or overwrite an
+        unresolved plan. Context destruction invalidates its borrowed views but
+        does not remove the obligation to dispose the plan before unloading OVXR.
         Serialize with non-acquire methods on this context.
         """
         rc, plan = self._bindings.begin_frame(self._handle)
+        state = self._openxr_callback_state
+        if state.has_pending:
+            try:
+                # The caller will not receive this plan when we raise. Return
+                # its active-frame slot and end the native frame first.
+                if plan.frame:
+                    self._bindings.cancel_frame(self._handle, plan)
+            finally:
+                state.raise_pending()
         return Result(rc), plan
 
     def bind_frame(
@@ -891,7 +1101,19 @@ class Context:
         continue from a fresh one — reusing it is rejected as at or below the
         write floor.
 
-        Only co-writers need this; a sole writer may go straight from
+        In OVXR-stepped mode, a renderable bind exposes the completed borrowed result
+        as ``plan.step_result``. Read/map its outputs for app-owned composition;
+        finish reads and unmap before submit/cancel or context destruction. Never destroy that result.
+
+        In application-stepped mode, a renderable bind publishes the eye poses
+        and resumes their cameras with signed int32 ``omni:sensor:frameLimit = -1``, then
+        stops before stepping OVRTX. The application must pause those cameras
+        with ``frameLimit = 0`` before every auxiliary-only step while keeping
+        the eye products in its step set. Pending begin polls, submit and cancel
+        do not publish the pause. Use application-owned ordinals and serialize
+        publication with renderer reads.
+
+        Co-writers and output readers need this; a sole writer may go straight from
         :meth:`begin_frame` to :meth:`submit_frame`, which binds at a private
         ordinal itself. Serialize with non-acquire methods on this context.
 
@@ -900,38 +1122,62 @@ class Context:
         first renderable bind of a context authors the runtime prims, seeds the
         anchor, writes camera state and seals, all at this one ordinal -- it
         never asks for a second one.
+
+        A plan whose native context has been destroyed cannot be rebound: native
+        bind returns ``ERROR`` without consuming it. Use :meth:`cancel_frame`
+        to release its detached frame handle.
         """
         ordinal = self._resolve_stage_ordinal(stage_ordinal)
         rc, sealed = self._bindings.bind_frame(self._handle, plan, delta_time_seconds, ordinal)
         return Result(rc), sealed
 
-    def submit_frame(self, plan, *, step_result: int = 0, additional_layers=None):
+    def submit_frame(
+        self,
+        plan,
+        *,
+        step_result: _b.ovrtx_step_result_handle_t = _b.OVRTX_INVALID_STEP_RESULT_HANDLE,
+        additional_layers=None,
+        replace_scene_layer=False,
+    ):
         """Submit a plan from :meth:`begin_frame` (binding it first if the caller did not).
 
         ``step_result`` is only for application-stepped contexts
         (``ContextDesc.application_steps_renderer``): the ``ovrtx`` step result
         the application produced at ``plan.render_ordinal``; OVXR reads it and
-        the application destroys it afterwards. It must stay 0 otherwise.
+        the application destroys it afterwards. Pass an ``ovrtx.StepResultHandle``;
+        it must remain ``ovrtx.INVALID_STEP_RESULT_HANDLE`` otherwise.
         ``additional_layers`` optionally holds ctypes pointers to native OpenXR
         composition layers (``XrCompositionLayerBaseHeader``-compatible structs),
-        appended after the OVRTX scene in order. Keep their views, next chains,
+        appended after the OVRTX scene in order. Set ``replace_scene_layer=True``
+        to submit only the provided layers (at least one is required), for
+        application-owned scene composition. Keep their views, next chains,
         spaces and swapchains alive and finish their graphics submissions before
         calling; this method retains the pointers and the array through the
-        native call. A malformed descriptor is rejected before the plan is
-        consumed or implicitly bound. Serialize with non-acquire methods on this context.
+        native call. A malformed native descriptor is rejected before the plan
+        is consumed or implicitly bound while its owning context is live.
+        Python argument validation also leaves the plan untouched. Once native
+        submission accepts ownership, every return path consumes and clears the
+        plan. After native context destruction, calls forwarded to native
+        submission return ``ERROR`` and consume the detached plan without using
+        its expired borrowed views or a caller-owned result. Serialize with
+        non-acquire methods on this context.
         """
+        step_result = _b.ovrtx_step_result_handle_t._require(step_result, "step_result")
         owners = tuple(additional_layers) if additional_layers is not None else ()
         if len(owners) > 0xFFFFFFFF:
             raise ValueError("Too many composition layers")
+        if replace_scene_layer and not owners:
+            raise ValueError("replace_scene_layer requires at least one application layer")
         desc = None
-        if owners or step_result:
+        if owners or step_result != _b.OVRTX_INVALID_STEP_RESULT_HANDLE:
             desc = _b.ovxr_submit_desc_t()
-            desc.step_result = int(step_result)
+            desc.step_result = step_result
         if owners:
             desc.additional_layers = (ctypes.c_void_p * len(owners))(
                 *(ctypes.cast(layer, ctypes.c_void_p) for layer in owners)
             )
             desc.additional_layer_count = len(owners)
+            desc.replace_scene_layer = replace_scene_layer
         self._frame_lifetime.begin_capture_call()
         try:
             rc, result = self._bindings.submit_frame(self._handle, plan, desc)
@@ -950,13 +1196,18 @@ class Context:
         Writes nothing to the Stage. Call between frames; serialize with
         non-acquire methods on this context.
         """
-        self._check(
-            "set_frame_render_products",
-            self._bindings.set_frame_render_products(self._handle, list(render_products)),
+        self._call_checked(
+            self._bindings.set_frame_render_products, self._handle, list(render_products)
         )
 
     def cancel_frame(self, plan) -> None:
-        """Cancel a plan; serialize with non-acquire methods on this context."""
+        """Cancel and consume a plan, including after this context is destroyed.
+
+        Unmap borrowed outputs before live-plan cancellation or context
+        destruction. After destruction this releases only the detached frame
+        handle; the plan's borrowed views have already expired.
+        Serialize with non-acquire methods and never overlap :meth:`destroy`.
+        """
         self._bindings.cancel_frame(self._handle, plan)
 
     def acquire_frame(self) -> Optional[Frame]:
@@ -984,10 +1235,11 @@ class Context:
 
         Serialize with non-acquire methods on this context.
         """
-        rc, out = self._bindings.get_device_info(self._handle)
+        operation = self._bindings.get_device_info
+        rc, out = operation(self._handle)
         if rc == Result.NOT_READY:
             return out
-        self._check("get_device_info", rc)
+        self._check(operation, rc)
         return out
 
     def get_scene_info(self) -> SceneInfo:
@@ -1002,8 +1254,9 @@ class Context:
 
         Serialize with non-acquire methods on this context.
         """
-        rc, out = self._bindings.get_scene_info(self._handle)
-        self._check("get_scene_info", rc)
+        operation = self._bindings.get_scene_info
+        rc, out = operation(self._handle)
+        self._check(operation, rc)
         return SceneInfo._from_c(out)
 
     def get_openxr_handles(self):
@@ -1020,11 +1273,55 @@ class Context:
 
         Serialize with non-acquire methods on this context.
         """
-        rc, out = self._bindings.get_openxr_handles(self._handle)
+        operation = self._bindings.get_openxr_handles
+        rc, out = operation(self._handle)
         if rc == Result.NOT_READY:
             return None
-        self._check("get_openxr_handles", rc)
+        self._check(operation, rc)
         return OpenXrHandles._from_c(out)
+
+    def get_frame_projection_views(self, plan) -> tuple[FrameProjectionView, ...]:
+        """Copy the poses/FOV actually used by a successfully bound frame.
+
+        Does not call xrLocateViews again. Bound no-render plans return an
+        empty tuple; unbound, consumed or foreign plans raise OvxrError.
+        Serialize with non-acquire methods on this context.
+        """
+        operation = self._bindings.get_frame_projection_views
+        rc, views = operation(self._handle, plan)
+        self._check(operation, rc)
+        return tuple(FrameProjectionView._from_c(view) for view in views)
+
+    def set_openxr_event_callback(self, callback: Optional[Callable[[OpenXrEvent], None]]) -> None:
+        """Observe consumed runtime events on the thread driving OVXR, including teardown.
+
+        Delivery follows internal handling and cannot suppress it. Pass None to
+        unregister; replacement affects subsequent events. Serialize registration
+        with context operations. Calls back into this context are rejected.
+        Ordinary exceptions become RuntimeWarning. Process-control exceptions
+        explicitly raised by the callback are deferred until the outer context
+        call finishes native cleanup. This does not guarantee delivery of an
+        asynchronous Ctrl+C: Python may interrupt the ctypes trampoline before
+        its exception handler starts. Applications needing reliable SIGINT handling
+        must arrange it outside the callback.
+        The wrapper keeps the native callback alive until replacement or destruction.
+        """
+        if callback is not None and not callable(callback):
+            raise TypeError("OpenXR event callback must be callable or None")
+        state = self._openxr_callback_state
+        native = None
+        if callback is not None:
+            def deliver(event_type, data, size, _user_data):
+                state.active = True
+                try:
+                    callback(OpenXrEvent(int(event_type), ctypes.string_at(data, size)))
+                except BaseException as error:
+                    state.report(error, "OVXR OpenXR event callback failed")
+                finally:
+                    state.active = False
+            native = _b.ovxr_openxr_event_callback_t(deliver)
+        self._call_checked(self._bindings.set_openxr_event_callback, self._handle, native)
+        self._openxr_event_callback = native
 
     def get_vulkan_handles(self) -> Optional[VulkanHandles]:
         """Return the session's borrowed Vulkan binding, or None before creation.
@@ -1034,10 +1331,11 @@ class Context:
         Destroy application-owned imports before destroying this context; never
         destroy the borrowed device, instance, or queue. Non-Vulkan contexts fail.
         """
-        rc, out = self._bindings.get_vulkan_handles(self._handle)
+        operation = self._bindings.get_vulkan_handles
+        rc, out = operation(self._handle)
         if rc == Result.NOT_READY:
             return None
-        self._check("get_vulkan_handles", rc)
+        self._check(operation, rc)
         return VulkanHandles._from_c(out)
 
     # -- runtime anchor -----------------------------------------------------
@@ -1058,7 +1356,7 @@ class Context:
         and let OVXR's seal publish it.
         Serialize with non-acquire methods on this context.
         """
-        self._check("set_anchor_prim", self._bindings.set_anchor_prim(self._handle, prim_path))
+        self._call_checked(self._bindings.set_anchor_prim, self._handle, prim_path)
 
     def clear_anchor(self, stage_ordinal: Optional[int] = None) -> None:
         """Reset the managed anchor prim to identity and select it.
@@ -1070,9 +1368,8 @@ class Context:
         last request before a boundary wins).
         Serialize with non-acquire methods on this context.
         """
-        self._check(
-            "clear_anchor",
-            self._bindings.clear_anchor(self._handle, self._resolve_stage_ordinal(stage_ordinal)),
+        self._call_checked(
+            self._bindings.clear_anchor, self._handle, self._resolve_stage_ordinal(stage_ordinal)
         )
 
     def set_managed_anchor_transform(self, transform, stage_ordinal: Optional[int] = None) -> None:
@@ -1089,23 +1386,23 @@ class Context:
         """
         raw = ovxr_anchor_transform_t()
         raw.matrix = (ctypes.c_double * 16)(*transform)
-        self._check(
-            "set_managed_anchor_transform",
-            self._bindings.set_managed_anchor_transform(
-                self._handle, raw, self._resolve_stage_ordinal(stage_ordinal)
-            ),
+        self._call_checked(
+            self._bindings.set_managed_anchor_transform,
+            self._handle, raw, self._resolve_stage_ordinal(stage_ordinal),
         )
 
     def get_anchor_prim(self) -> str:
         """Return the prim driving the active anchor (``<runtime_prim_root>/Anchor`` by default)."""
-        rc, path = self._bindings.get_anchor_prim(self._handle)
-        self._check("get_anchor_prim", rc)
+        operation = self._bindings.get_anchor_prim
+        rc, path = operation(self._handle)
+        self._check(operation, rc)
         return path
 
     def get_anchor_transform(self) -> tuple[float, ...]:
         """Return the active anchor; serialize with non-acquire methods."""
-        rc, transform = self._bindings.get_anchor_transform(self._handle)
-        self._check("get_anchor_transform", rc)
+        operation = self._bindings.get_anchor_transform
+        rc, transform = operation(self._handle)
+        self._check(operation, rc)
         return tuple(transform.matrix)
 
     def transform_openxr_pose(
@@ -1125,8 +1422,9 @@ class Context:
         methods on this context.
         """
         pose = _openxr_pose(position, orientation)
-        rc, matrix = self._bindings.transform_openxr_pose(self._handle, pose)
-        self._check("transform_openxr_pose", rc)
+        operation = self._bindings.transform_openxr_pose
+        rc, matrix = operation(self._handle, pose)
+        self._check(operation, rc)
         return matrix
 
     def probe_openxr(self) -> "OpenXrProbe":
@@ -1145,13 +1443,17 @@ class Context:
     def submit_openxr_blank_frame(self) -> "tuple[Result, ovxr_openxr_frame_result_t]":
         """``ovxr_submit_openxr_blank_frame`` — bring up the session + submit one blank frame.
 
-        Returns ``(result, frame_result)`` (does not raise — session bring-up is
-        driven/observed by the caller).
+        Returns ``(result, frame_result)``; native failures use status codes so
+        session bring-up can be driven/observed by the caller. Process-control
+        exceptions from callbacks are re-raised after the native call finishes.
 
         Serialize with non-acquire methods on this context.
         """
-        rc, out = self._bindings.submit_openxr_blank_frame(self._handle)
-        return Result(rc), out
+        try:
+            rc, out = self._bindings.submit_openxr_blank_frame(self._handle)
+            return Result(rc), out
+        finally:
+            self._openxr_callback_state.raise_pending()
 
     def update_camera_transforms(
         self, transforms: dict[str, "list[float]"], stage_ordinal: Optional[int] = None
@@ -1171,9 +1473,9 @@ class Context:
             raw = path.encode("utf-8")
             arr[i].camera_path = raw
             arr[i].matrix = (ctypes.c_double * 16)(*matrix)
-        self._check(
-            "update_camera_transforms",
-            self._bindings.update_camera_transforms(self._handle, arr, self._resolve_stage_ordinal(stage_ordinal)),
+        self._call_checked(
+            self._bindings.update_camera_transforms,
+            self._handle, arr, self._resolve_stage_ordinal(stage_ordinal),
         )
 
     def update_prim_transforms(
@@ -1193,9 +1495,9 @@ class Context:
             raw = path.encode("utf-8")
             arr[i].prim_path = raw
             arr[i].matrix = (ctypes.c_double * 16)(*matrix)
-        self._check(
-            "update_prim_transforms",
-            self._bindings.update_prim_transforms(self._handle, arr, self._resolve_stage_ordinal(stage_ordinal)),
+        self._call_checked(
+            self._bindings.update_prim_transforms,
+            self._handle, arr, self._resolve_stage_ordinal(stage_ordinal),
         )
 
     def update_render_product_resolutions(
@@ -1216,9 +1518,7 @@ class Context:
             arr[i].render_product_path = raw
             arr[i].width = w
             arr[i].height = h
-        self._check(
-            "update_render_product_resolutions",
-            self._bindings.update_render_product_resolutions(
-                self._handle, arr, self._resolve_stage_ordinal(stage_ordinal)
-            ),
+        self._call_checked(
+            self._bindings.update_render_product_resolutions,
+            self._handle, arr, self._resolve_stage_ordinal(stage_ordinal),
         )

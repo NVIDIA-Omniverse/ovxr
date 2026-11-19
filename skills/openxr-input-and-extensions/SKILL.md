@@ -30,3 +30,9 @@ For opaque channels, read [runtime-adapters](../runtime-adapters/SKILL.md). Snap
 ## Examples
 
 For hand tracking, request the runtime extension before context creation, obtain borrowed handles after readiness and validate active joints. Destroy app-created trackers before replacing their context.
+
+
+## Examples and validation
+
+Use [anchors-and-teleport](../../examples/python/anchors-and-teleport/README.md#adapting-this-sample), [spatial-workbench](../../examples/python/spatial-workbench/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#openxr-input-and-extensions) for the automated checks associated with this guidance.

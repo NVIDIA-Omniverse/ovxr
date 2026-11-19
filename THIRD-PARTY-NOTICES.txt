@@ -324,10 +324,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 --------------------------------------------------------------------------------
 NVIDIA COMPONENT ATTRIBUTION
---------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------
-core.phonehome (linked statically into the OVXR implementation library)
+core.library_startup_telemetry (linked statically into the OVXR implementation library)
 --------------------------------------------------------------------------------
 Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 

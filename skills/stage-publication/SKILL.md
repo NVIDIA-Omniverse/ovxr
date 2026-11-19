@@ -21,7 +21,7 @@ Choose the `PRIVATE` value of `StageOrdinalMode` only while OVXR is the sole ong
 
 An application publication coordinator owns allocation and serialization. A supplied ordinal must be above the floor, exclusively available for OVXR to finish, with every lower ordinal already resolved. Independent writers choosing floor-plus-one can collide or publish partial batches.
 
-Keep OVStage's default `NONDECREASING` ordinal admission policy, or select `NONDECREASING` or `FLOOR_ONLY` before anything else in the process creates or initializes OVStage; the first process reference fixes it. OVXR 0.1 writes some attributes more than once at one ordinal (first-bind eye-camera state, failure undo and same-ordinal retry), which `STRICTLY_INCREASING` rejects, so context creation fails under that policy. Support is planned for OVXR 0.2.
+Keep OVStage's default `NONDECREASING` ordinal admission policy, or select `NONDECREASING` or `FLOOR_ONLY` before anything else in the process creates or initializes OVStage; it remains fixed until all process references are released. OVXR writes some attributes more than once at one ordinal (first-bind eye-camera state, failure undo and same-ordinal retry), which `STRICTLY_INCREASING` rejects, so context creation fails under that policy. Support is planned for a future release.
 
 `begin_frame` supplies predicted timing and, under the public README contract, resolves the frame anchor snapshot from committed state. Publish navigation and derived anchor world transforms before that boundary. Hold the application's publication rendezvous across eligible scene writes and `bind_frame`; bind writes camera/runtime state, seals the ordinal and, in default OVXR-stepped mode, renders. A documented application-stepped opt-in stops after publication; frame-loop defines the caller's update/step and result ownership. It returns a seal report even on failure. Mark a sealed ordinal resolved and allocate a fresh one; cancellation does not undo publication.
 
@@ -32,3 +32,9 @@ Do not infer abandonment removes unpublished writes. Use OVStage's supported rol
 ## Examples
 
 If bind seals an ordinal and then rendering fails, record that ordinal as resolved and allocate a fresh one. Canceling the plan does not roll back already published stage writes.
+
+
+## Examples and validation
+
+Use [live-scene](../../examples/python/live-scene/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#stage-publication) for the automated checks associated with this guidance.

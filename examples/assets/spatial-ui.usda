@@ -1,0 +1,20 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+    subLayers = [@xr-room.usda@]
+)
+
+over "World"
+{
+    over "MovingRig" (active = false) {}
+    over "TeleportPad" (active = false) {}
+    over "LeftLandmark" (active = false) {}
+    over "RightLandmark" (active = false) {}
+    # Matches CUBE in panel_layout.py. The cube blocks panel B and its input.
+    over "AnimatedCube"
+    {
+        double3 xformOp:translate = (0.6, 1.25, 0.75)
+    }
+}

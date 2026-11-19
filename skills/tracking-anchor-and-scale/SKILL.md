@@ -32,3 +32,9 @@ Locate valid input poses in the returned reference space and convert through `tr
 ## Examples
 
 For a Z-up scene with a nonidentity spawn transform, resolve scene units and convert tracking poses once through the frame-latched mapping. Verify translation, heading and scale before adding application navigation.
+
+
+## Examples and validation
+
+Use [anchors-and-teleport](../../examples/python/anchors-and-teleport/README.md#adapting-this-sample), [spatial-workbench](../../examples/python/spatial-workbench/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#tracking-anchor-and-scale) for the automated checks associated with this guidance.

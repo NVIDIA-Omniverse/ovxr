@@ -1,0 +1,330 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+    subLayers = [@xr-room.usda@]
+)
+
+# Reusable geometry; each hand primitive receives a scene-space transform.
+class Sphere "HandJoint" (prepend apiSchemas = ["MaterialBindingAPI"])
+{
+    double radius = 0.0095
+    double3 xformOp:translate = (0, -100, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+    rel material:binding = </World/Materials/HandMint>
+}
+class Cylinder "HandBone" (prepend apiSchemas = ["MaterialBindingAPI"])
+{
+    double radius = 1
+    double height = 1
+    uniform token axis = "Z"
+    double3 xformOp:translate = (0, -100, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+    rel material:binding = </World/Materials/HandMint>
+}
+class Sphere "HandPalm" (prepend apiSchemas = ["MaterialBindingAPI"])
+{
+    double radius = 1
+    double3 xformOp:translate = (0, -100, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+    rel material:binding = </World/Materials/HandMint>
+}
+
+# World-space panel geometry participates in scene depth and ray hit testing.
+over "World"
+{
+    def Scope "Materials"
+    {
+        def Material "HandMint"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/HandMint/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.02, 0.38, 0.12)
+                float inputs:reflection_roughness_constant = 0.7
+                token outputs:out
+            }
+        }
+        def Material "OccluderViolet"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/OccluderViolet/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.13, 0.025, 0.32)
+                float inputs:reflection_roughness_constant = 0.7
+                token outputs:out
+            }
+        }
+        def Material "PanelIvory"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/PanelIvory/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.6, 0.5, 0.35)
+                float inputs:reflection_roughness_constant = 0.8
+                token outputs:out
+            }
+        }
+    }
+    def Cube "Panel" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0, 0.9, 0.96)
+        double3 xformOp:scale = (2.4, 0.65, 0.04)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/PanelIvory>
+    }
+    def Cube "Button1" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (-0.9, 0.9, 1.04)
+        double3 xformOp:scale = (0.45, 0.35, 0.08)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Blue>
+    }
+    def Cube "Button1Mark0" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (-0.9, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button2" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (-0.3, 0.9, 1.04)
+        double3 xformOp:scale = (0.45, 0.35, 0.08)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Blue>
+    }
+    def Cube "Button2Mark0" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (-0.33499999999999996, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button2Mark1" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (-0.265, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button3" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.3, 0.9, 1.04)
+        double3 xformOp:scale = (0.45, 0.35, 0.08)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Blue>
+    }
+    def Cube "Button3Mark0" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.22999999999999998, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button3Mark1" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.3, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button3Mark2" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.37, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button4" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.9, 0.9, 1.04)
+        double3 xformOp:scale = (0.45, 0.35, 0.08)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Blue>
+    }
+    def Cube "Button4Mark0" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.795, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button4Mark1" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.865, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button4Mark2" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0.935, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Cube "Button4Mark3" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (1.0050000000000001, 0.9, 1.088)
+        double3 xformOp:scale = (0.035, 0.16, 0.012)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Xform "Occluder"
+    {
+        double3 xformOp:translate = (0.66, 1.1, 1.55)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    def Cube "Geometry" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0, 0, 0)
+        double3 xformOp:scale = (0.14, 0.6, 0.14)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/OccluderViolet>
+    }
+
+    }
+    def Sphere "ControllerLeft" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double radius = 0.045
+        double3 xformOp:translate = (0, -100, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/HandMint>
+    }
+    def Sphere "HandLeftJoint0" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint1" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint2" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint3" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint4" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint5" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint6" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint7" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint8" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint9" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint10" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint11" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint12" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint13" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint14" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint15" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint16" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint17" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint18" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint19" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint20" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint21" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint22" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint23" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint24" (inherits = </HandJoint>) {}
+    def Sphere "HandLeftJoint25" (inherits = </HandJoint>) {}
+    def Sphere "ControllerRight" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double radius = 0.045
+        double3 xformOp:translate = (0, -100, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/HandMint>
+    }
+    def Sphere "HandRightJoint0" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint1" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint2" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint3" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint4" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint5" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint6" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint7" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint8" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint9" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint10" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint11" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint12" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint13" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint14" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint15" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint16" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint17" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint18" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint19" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint20" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint21" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint22" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint23" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint24" (inherits = </HandJoint>) {}
+    def Sphere "HandRightJoint25" (inherits = </HandJoint>) {}
+
+    def Cylinder "HandLeftBone0" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone1" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone2" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone3" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone4" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone5" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone6" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone7" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone8" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone9" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone10" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone11" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone12" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone13" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone14" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone15" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone16" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone17" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone18" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone19" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone20" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone21" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone22" (inherits = </HandBone>) {}
+    def Cylinder "HandLeftBone23" (inherits = </HandBone>) {}
+    def Sphere "HandLeftPalm" (inherits = </HandPalm>) {}
+    def Cylinder "HandRightBone0" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone1" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone2" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone3" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone4" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone5" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone6" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone7" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone8" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone9" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone10" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone11" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone12" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone13" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone14" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone15" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone16" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone17" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone18" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone19" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone20" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone21" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone22" (inherits = </HandBone>) {}
+    def Cylinder "HandRightBone23" (inherits = </HandBone>) {}
+    def Sphere "HandRightPalm" (inherits = </HandPalm>) {}
+}

@@ -32,3 +32,9 @@ For lifecycle read [application-flow](../application-flow/SKILL.md); for readine
 ## Examples
 
 For a supplied Python SDK, install its matching platform wheel in an isolated environment. Record package versions and imported module locations, then separate import success from native-load and first-frame results.
+
+
+## Examples and validation
+
+Use [minimal-xr](../../examples/python/minimal-xr/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#project-setup-python) for the automated checks associated with this guidance.

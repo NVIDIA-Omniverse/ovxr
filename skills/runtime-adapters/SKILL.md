@@ -28,3 +28,9 @@ Client choice, user connection flow, message semantics and reconnect state remai
 ## Examples
 
 For a CloudXR host awaiting its client, retain renderer state and report readiness. Verify the installed runtime listener and client profile independently from OVXR frame ownership.
+
+
+## Examples and validation
+
+Use [runtime-lifecycle](../../examples/python/runtime-lifecycle/README.md#adapting-this-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#runtime-adapters) for the automated checks associated with this guidance.

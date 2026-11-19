@@ -14,7 +14,7 @@ quad-view frames over OpenXR. Typical use mirrors ``ovrtx``::
     import ovrtx, ovstage, ovxr
 
     renderer = ovrtx.Renderer(ovrtx.RendererConfig(...))
-    # OVXR 0.1 requires the default NONDECREASING (or FLOOR_ONLY) OVStage
+    # OVXR requires the default NONDECREASING (or FLOOR_ONLY) OVStage
     # ordinal admission policy; STRICTLY_INCREASING is not supported.
     stage = ovstage.Stage("my-app")
     renderer.attach_ovstage(stage)
@@ -42,6 +42,8 @@ from ._src.bindings import (
     FrameFormat,
     GraphicsApi,
     LocalFoveationMode,
+    LogSeverity,
+    OpenXrRuntimeStatus,
     ReferenceSpaceType,
     Result,
     SceneInfoPolicy,
@@ -53,21 +55,26 @@ from ._src.bindings import (
     library_telemetry_opt_out,
     load,
     result_name,
+    set_log_callback,
 )
 from ._src.context import (
     Context,
     ContextDesc,
     Frame,
     FrameExpiredError,
+    FrameProjectionView,
     OpenXrHandles,
+    OpenXrEvent,
     OpenXrProbe,
+    OpenXrRuntimeCheck,
     OvxrError,
     SceneInfo,
     VulkanHandles,
+    check_openxr_runtime,
 )
 from ._src.settings import apply_renderer_settings
 
-__version__ = "0.1.0.5842"
+__version__ = "0.2.0.1794933073"
 
 __all__ = [
     "__version__",
@@ -75,8 +82,12 @@ __all__ = [
     "OVXR_LIBRARY_PATH_HINT",
     "OVXR_LOADER_LIB_NAME",
     "library_telemetry_opt_out",
+    "check_openxr_runtime",
+    "set_log_callback",
     # enums
     "Result",
+    "LogSeverity",
+    "OpenXrRuntimeStatus",
     "FeaturePolicy",
     "DisplayMode",
     "SessionMode",
@@ -94,11 +105,14 @@ __all__ = [
     "ContextDesc",
     "Frame",
     "FrameExpiredError",
+    "FrameProjectionView",
     "SceneInfo",
     "OvxrError",
     "OpenXrHandles",
     "VulkanHandles",
+    "OpenXrEvent",
     "OpenXrProbe",
+    "OpenXrRuntimeCheck",
     # renderer-global settings
     "apply_renderer_settings",
     # low-level binding surface

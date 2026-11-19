@@ -1,80 +1,164 @@
 {
-  "source_sha": "ac25def037b1af82058a495de55d7cf4f2736a90",
-  "version": "0.1.0.5842",
+  "source_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb",
+  "version": "0.2.0.1794933073",
   "dependencies": {
     "ovrtx": {
-      "version": "0.6.0.1791947691",
-      "version_full": "0.6.0.1791947691.c6d71501",
-      "source_sha": "c6d715014279c2021e874067eb65ebe0c4fe75e8",
-      "c_package_sha256": {
-        "windows-x86_64": "96de03fdcbee3a398f059f1ffb15a3d8f30bb8bcc6ae5d84a08e8875769ce296",
-        "linux-x86_64": "63639c3eabaf31553dbf883ac2376d8b6e361806dee4e17bafaa0962ce23dd51",
-        "linux-aarch64": "c91048d75743a06cf887031721d37508564c853e321a92ec3bfb6ec7a74bc568"
-      },
-      "python_package_sha256": {
-        "windows-x86_64": "90188e5a762b01f4d84d66b84858d28f21eaf3a7ef3ad4dfb9a7bf860ff3e67e",
-        "linux-x86_64": "b56ee8687f7e9c2934bc2da5ce7aecbd3ef6e8123a43e0573f1f33b8db5fc3c7"
-      },
+      "version": "0.7.0.1794596436",
+      "version_full": "0.7.0.1794596436.0f2886e1",
+      "source_sha": "0f2886e1e89634f3f446a653e79666ad7a3aa01f",
       "c_packages": {
-        "windows-x86_64": "https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.6.0/ovrtx@0.6.0.1791947691.c6d71501.windows-x86_64.zip",
-        "linux-x86_64": "https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.6.0/ovrtx@0.6.0.1791947691.c6d71501.manylinux_2_35_x86_64.zip",
-        "linux-aarch64": "https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.6.0/ovrtx@0.6.0.1791947691.c6d71501.manylinux_2_35_aarch64.zip"
+        "linux-x86_64": "https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.7.0/ovrtx@0.7.0.1794596436.0f2886e1.manylinux_2_35_x86_64.zip",
+        "windows-x86_64": "https://github.com/NVIDIA-Omniverse/ovrtx/releases/download/v0.7.0/ovrtx@0.7.0.1794596436.0f2886e1.windows-x86_64.zip"
+      },
+      "c_package_sha256": {
+        "linux-x86_64": "6aa6da398dd0a79aec8adfe06ab720d4e46ca4af28db68dbe4e3418dab6ec1cb",
+        "windows-x86_64": "6e8eac1e216907a9498e34956ecec0285dde04be1c01167ce4102f65c8c94086"
       },
       "python_packages": {
-        "windows-x86_64": "https://pypi.nvidia.com/ovrtx/ovrtx-0.6.0.1791947691-py3-none-win_amd64.whl",
-        "linux-x86_64": "https://pypi.nvidia.com/ovrtx/ovrtx-0.6.0.1791947691-py3-none-manylinux_2_35_x86_64.whl"
+        "linux-x86_64": "https://pypi.nvidia.com/ovrtx/ovrtx-0.7.0.1794596436-py3-none-manylinux_2_35_x86_64.whl",
+        "windows-x86_64": "https://pypi.nvidia.com/ovrtx/ovrtx-0.7.0.1794596436-py3-none-win_amd64.whl"
+      },
+      "python_package_sha256": {
+        "linux-x86_64": "1e36c2e6d892650cdc46edb58ebfd668addb5b7fd3b0b15fe9f32b1b9b12c0ee",
+        "windows-x86_64": "fc5407494f95c91d01692913d7424b6cbe00d64242589989352971aebfc4170b"
       }
     },
     "ovstage": {
-      "version": "0.3.0.1791986420",
-      "version_full": "0.3.0.1791986420.36fe3c44",
-      "source_sha": "36fe3c446bb7f8171aa6ddf8b598ca9a69828c64",
-      "c_package_sha256": {
-        "windows-x86_64": "007cd7ef776415c95342985fcf60ba89aa4222a07c914fdd314acb860e0b95a5",
-        "linux-x86_64": "922a64c3583040ea3ab3262c0e95aa4ac642bef8676b43a02fa262ea14adc387",
-        "linux-aarch64": "14d8815694779799768480eaded48ae3c401ab128eca7e18ea2c3f30e385a307"
-      },
-      "python_package_sha256": {
-        "windows-x86_64": "400df4b7dc916edefa6f832aa11b674deb8a4d6831bba9ad3849169236b80c46",
-        "linux-x86_64": "35aa0c10c47549c495e65896356ce3b910041d2eaa602888f092f7e300586cf8"
-      },
+      "version": "0.4.0.1794520352",
+      "version_full": "0.4.0.1794520352.987892c3",
+      "source_sha": "987892c35defa5ed89f2adbce71e30e8e1585c88",
       "c_packages": {
-        "windows-x86_64": "https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.windows-x86_64.zip",
-        "linux-x86_64": "https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.manylinux_2_35_x86_64.zip",
-        "linux-aarch64": "https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.3.0/ovstage@0.3.0.1791986420.36fe3c44.manylinux_2_35_aarch64.zip"
+        "linux-x86_64": "https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.4.0/ovstage@0.4.0.1794520352.987892c3.manylinux_2_35_x86_64.zip",
+        "windows-x86_64": "https://github.com/NVIDIA-Omniverse/ovstage/releases/download/v0.4.0/ovstage@0.4.0.1794520352.987892c3.windows-x86_64.zip"
+      },
+      "c_package_sha256": {
+        "linux-x86_64": "e39fc83dce13cd2818bc43448d27137f1659511a2d2f91a66bff263a23a6a4dd",
+        "windows-x86_64": "aef6b5c24fe220e888cf0021638d5e7ba9947f3fc09cde8ca5bb2e0dc11fc707"
       },
       "python_packages": {
-        "windows-x86_64": "https://pypi.nvidia.com/ovstage/ovstage-0.3.0.1791986420-py3-none-win_amd64.whl",
-        "linux-x86_64": "https://pypi.nvidia.com/ovstage/ovstage-0.3.0.1791986420-py3-none-manylinux_2_35_x86_64.whl"
+        "linux-x86_64": "https://pypi.nvidia.com/ovstage/ovstage-0.4.0.1794520352-py3-none-manylinux_2_35_x86_64.whl",
+        "windows-x86_64": "https://pypi.nvidia.com/ovstage/ovstage-0.4.0.1794520352-py3-none-win_amd64.whl"
+      },
+      "python_package_sha256": {
+        "linux-x86_64": "7473a79763af4f8fe8dc70cbd4d99468d822a8f96a0c58891c25801390958f0a",
+        "windows-x86_64": "c611727f27ba21222649137ffaed83c35ece44374e8e6686c660d1fa21b2d4ab"
       }
     }
   },
-  "release_version": "0.1.0",
-  "source_archive": "ovxr-sources@0.1.0.5842.ac25def0.zip",
+  "dependency_contract": "release-receipt-v1",
+  "release_version": "0.2.0",
+  "source_archive": "ovxr-sources@0.2.0.1794933073.cc4a2e42.zip",
   "windows_signatures_verified": true,
   "artifacts": [
     {
-      "filename": "ovxr-0.1.0.5842-py3-none-manylinux_2_35_x86_64.whl",
-      "sha256": "146c90f1130456e836e120bff77e2f4f27bf387b67258e8b5c8641a0c0633854"
+      "filename": "ovxr-0.2.0.1794933073-py3-none-manylinux_2_35_x86_64.whl",
+      "sha256": "ed7e48f0f20a9726c4c433edec1d9995b47434072b5ddfe71a1bde378a8bf65a"
     },
     {
-      "filename": "ovxr-0.1.0.5842-py3-none-win_amd64.whl",
-      "sha256": "1d8b528ff66d3a5ce3788d5d09bffb92bc4327dec897c4e42951007951a02b62"
+      "filename": "ovxr-0.2.0.1794933073-py3-none-win_amd64.whl",
+      "sha256": "2c818ac710860c00a66188756a74723129db8800dabedec7753c76d45963304a"
     },
     {
-      "filename": "ovxr-sources@0.1.0.5842.ac25def0.zip",
-      "sha256": "a6b3451ef9af9f7991799397de4e10c6cd331c3d62c0614fa4ab797c5353388a"
+      "filename": "ovxr-sources@0.2.0.1794933073.cc4a2e42.zip",
+      "sha256": "9c110e53ac9f299617d2bd25276040ada0919726bc7b2f196bfd994ddaaf42e1"
     },
     {
-      "filename": "ovxr@0.1.0.5842.ac25def0.manylinux_2_35_x86_64.zip",
-      "sha256": "9cca82b0e126edfbbb8246bbc93d109b4350d04765e05f5f1bf2ae1ee50bddca"
+      "filename": "ovxr@0.2.0.1794933073.cc4a2e42.manylinux_2_35_x86_64.zip",
+      "sha256": "f0d6d599d8859493b21deab726e0d74427a6b8ce2f9314469128db6bf6359145"
     },
     {
-      "filename": "ovxr@0.1.0.5842.ac25def0.windows-x86_64.zip",
-      "sha256": "15b768bf37ddab509be055a954da1100c4f1fbc4944785667176dcf031ed1701"
+      "filename": "ovxr@0.2.0.1794933073.cc4a2e42.windows-x86_64.zip",
+      "sha256": "fca337105629aef478edfa4f8a1490d3dc9b822fea670afbad85dc95e60f381b"
     }
   ],
-  "run_id": 39319605347,
-  "run_attempt": 1,
-  "branch": "release/ovxr-0.1"
+  "dependency_artifacts": [
+    {
+      "project": "ovrtx",
+      "platform": "linux-x86_64",
+      "filename": "ovrtx-0.7.0.1794596436-py3-none-manylinux_2_35_x86_64.whl",
+      "sha256": "1e36c2e6d892650cdc46edb58ebfd668addb5b7fd3b0b15fe9f32b1b9b12c0ee"
+    },
+    {
+      "project": "ovstage",
+      "platform": "linux-x86_64",
+      "filename": "ovstage-0.4.0.1794520352-py3-none-manylinux_2_35_x86_64.whl",
+      "sha256": "7473a79763af4f8fe8dc70cbd4d99468d822a8f96a0c58891c25801390958f0a"
+    },
+    {
+      "project": "ovrtx",
+      "platform": "windows-x86_64",
+      "filename": "ovrtx-0.7.0.1794596436-py3-none-win_amd64.whl",
+      "sha256": "fc5407494f95c91d01692913d7424b6cbe00d64242589989352971aebfc4170b"
+    },
+    {
+      "project": "ovstage",
+      "platform": "windows-x86_64",
+      "filename": "ovstage-0.4.0.1794520352-py3-none-win_amd64.whl",
+      "sha256": "c611727f27ba21222649137ffaed83c35ece44374e8e6686c660d1fa21b2d4ab"
+    }
+  ],
+  "ci_runs": {
+    "linux-x86_64": {
+      "run_id": 44127796018,
+      "run_attempt": 1,
+      "branch": "release/ovlibs-2026.11",
+      "event_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb"
+    },
+    "windows-x86_64": {
+      "run_id": 44127802554,
+      "run_attempt": 1,
+      "branch": "release/ovlibs-2026.11",
+      "event_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb"
+    }
+  },
+  "publication_intents": {
+    "linux-x86_64": {
+      "event_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb",
+      "platform": "linux-x86_64",
+      "publication_flags": [
+        "ovstage_publish_scheduled",
+        "ovstage_publish_scheduled_linux_x86_64",
+        "run_ovrtx_deploy",
+        "run_ovxr_publish"
+      ],
+      "publication_mode": "promote",
+      "publication_modes": {
+        "ovstage_publish_scheduled": "promote",
+        "ovstage_publish_scheduled_linux_x86_64": "promote",
+        "run_ovrtx_deploy": "promote",
+        "run_ovxr_publish": "promote"
+      },
+      "ref": "refs/heads/release/ovlibs-2026.11",
+      "repository": "NVIDIA-Omniverse/kit",
+      "run_attempt": "1",
+      "run_id": "44127796018",
+      "scheduled_release": true,
+      "source_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb",
+      "workflow_path": ".github/workflows/build-test-linux-x86_64.yml"
+    },
+    "windows-x86_64": {
+      "event_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb",
+      "platform": "windows-x86_64",
+      "publication_flags": [
+        "ovstage_publish_scheduled",
+        "ovstage_publish_scheduled_windows_x86_64",
+        "run_ovrtx_deploy",
+        "run_ovxr_publish"
+      ],
+      "publication_mode": "promote",
+      "publication_modes": {
+        "ovstage_publish_scheduled": "promote",
+        "ovstage_publish_scheduled_windows_x86_64": "promote",
+        "run_ovrtx_deploy": "promote",
+        "run_ovxr_publish": "promote"
+      },
+      "ref": "refs/heads/release/ovlibs-2026.11",
+      "repository": "NVIDIA-Omniverse/kit",
+      "run_attempt": "1",
+      "run_id": "44127802554",
+      "scheduled_release": true,
+      "source_sha": "cc4a2e4271953ba72c4caf8a9c924550ad7d36bb",
+      "workflow_path": ".github/workflows/build-test-windows-x86_64.yml"
+    }
+  }
 }

@@ -1,0 +1,173 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+# Texture-free scene shared by both languages. OpenXR looks along local -Z.
+def Xform "World"
+{
+    # Hidden until an interactive sample publishes the actual pointing ray.
+    def Cube "PointerBeam" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0, -100, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/PointerMagenta>
+    }
+    def Sphere "PointerTip" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double radius = 0.016
+        double3 xformOp:translate = (0, -100, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/White>
+    }
+    def Xform "StartAnchor"
+    {
+        double3 xformOp:translate = (0, 0, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Cube "Floor" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (0, -0.1, 0)
+        double3 xformOp:scale = (12, 0.2, 12)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Grey>
+    }
+
+    def Cube "AnimatedCube" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 0.6
+        double3 xformOp:translate = (0, 1.3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </World/Materials/Orange>
+    }
+
+    # A visible platform follows the same prim selected as the live anchor.
+    def Xform "MovingRig"
+    {
+        double3 xformOp:translate = (0, 0, 3)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Cube "Platform" (prepend apiSchemas = ["MaterialBindingAPI"])
+        {
+            double size = 1
+            double3 xformOp:translate = (0, 0.015, 0)
+            double3 xformOp:scale = (1.2, 0.03, 1.2)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+            rel material:binding = </World/Materials/Blue>
+        }
+    }
+
+    def Cube "TeleportPad" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (3, 0.015, 1)
+        double3 xformOp:scale = (1.2, 0.03, 1.2)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Orange>
+    }
+
+    def Cube "LeftLandmark" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (-2, 1, -1)
+        double3 xformOp:scale = (0.25, 2, 0.25)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Blue>
+    }
+
+    def Cube "RightLandmark" (prepend apiSchemas = ["MaterialBindingAPI"])
+    {
+        double size = 1
+        double3 xformOp:translate = (2, 1, -1)
+        double3 xformOp:scale = (0.25, 2, 0.25)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        rel material:binding = </World/Materials/Orange>
+    }
+
+    def DistantLight "Sun"
+    {
+        float inputs:intensity = 3000
+        float inputs:angle = 0.53
+        float3 xformOp:rotateXYZ = (-45, 30, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+
+    def DomeLight "Sky"
+    {
+        float inputs:intensity = 500
+    }
+
+    def Scope "Materials"
+    {
+        # Input markers have their own colors, independent of scene objects.
+        def Material "PointerMagenta"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/PointerMagenta/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.55, 0.005, 0.28)
+                float inputs:reflection_roughness_constant = 0.7
+                token outputs:out
+            }
+        }
+        def Material "White"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/White/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.9, 0.9, 0.9)
+                float inputs:reflection_roughness_constant = 0.7
+                token outputs:out
+            }
+        }
+        def Material "Grey"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/Grey/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.22, 0.25, 0.3)
+                float inputs:reflection_roughness_constant = 0.8
+                token outputs:out
+            }
+        }
+        def Material "Blue"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/Blue/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.04, 0.35, 0.9)
+                float inputs:reflection_roughness_constant = 0.5
+                token outputs:out
+            }
+        }
+        def Material "Orange"
+        {
+            token outputs:mdl:surface.connect = </World/Materials/Orange/Shader.outputs:out>
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                color3f inputs:diffuse_color_constant = (0.9, 0.22, 0.03)
+                float inputs:reflection_roughness_constant = 0.5
+                token outputs:out
+            }
+        }
+    }
+}

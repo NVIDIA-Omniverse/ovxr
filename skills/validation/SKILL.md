@@ -30,3 +30,9 @@ Complete viewer validation belongs downstream: controller/tool semantics, integr
 ## Examples
 
 For a first integration check, report imports, native dependencies, populated scene, runtime readiness and submitted pixels separately. Mark missing headset or native-runtime gates untested.
+
+
+## Examples and validation
+
+Use the [sample adaptation guides](../../examples/README.md#skills-by-sample) for runnable source and prompt records.
+See [coverage and remaining gaps](../COVERAGE.md#validation) for the automated checks associated with this guidance.

@@ -6,7 +6,9 @@ OVXR collects anonymous initialization data when the library initializes to help
 
 ## When collection happens
 
-After the first successful OVXR context initialization in a process, OVXR schedules one background send attempt. Installing the wheel, importing `ovxr`, or an unsuccessful initialization does not itself trigger a report. Creating additional contexts in that process does not trigger additional reports. Delivery is best effort: there are no retries, and a short-lived process may exit before sending.
+After the first successful OVXR context initialization in a process, OVXR schedules one background send attempt. Installing the wheel, importing `ovxr`, or an unsuccessful initialization does not itself trigger a report. Creating additional contexts in that process does not trigger additional reports. The attempt starts about one second after initialization. Delivery is best effort: there are no retries, and a short-lived process may exit before sending.
+
+OVRTX, which OVXR renders through, sends its own separate report under the library name `ovrtx`, so an OVXR process sends one report for `ovxr` and one for `ovrtx`. The `NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1` environment variable described below turns off both; the programmatic OVXR opt-out covers OVXR only. See [OVRTX Data Collection & Use](https://github.com/NVIDIA-Omniverse/ovrtx/blob/main/TELEMETRY.md).
 
 ## What data is sent
 
@@ -143,7 +145,7 @@ The request also includes these HTTP headers. The user-agent is a fixed library 
 | Header | Expected value |
 | --- | --- |
 | `Host` | `6697362192350625.events.telemetry.data.nvidia.com` |
-| `User-Agent` | `ovx-phone-home/1` |
+| `User-Agent` | `ovx-lib-startup/1` |
 | `Accept` | `application/json` |
 | `X-Event-Protocol` | `1.6` |
 | `Content-Type` | `application/json;charset=utf-8` |
@@ -164,21 +166,31 @@ Either of the following controls prevents the telemetry request without disablin
 
 ### Environment variable
 
-Set `OVX_PHONE_HOME_OPT_OUT` to exactly `1` **before starting the application process**.
+Set `NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED` to exactly `1` **before starting the application process**.
 
-Linux / macOS shell:
+`OVX_PHONE_HOME_OPT_OUT=1`, the former name of this variable, is deprecated but still honored the same way. Either variable set to `1` opts out.
+
+Preferred: set the variable for a single launch by putting it in front of the launch command. It applies to that process only:
 
 ```bash
-export OVX_PHONE_HOME_OPT_OUT=1
-# Launch your application from this shell.
+NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1 ./your-app
 ```
 
-Windows PowerShell:
+Windows `cmd` can scope it to one launch the same way:
+
+```bat
+cmd /c "set NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1&& your-app.exe"
+```
+
+Windows PowerShell has no per-command prefix. The variable stays set for the rest of the PowerShell session and for every process launched from it, so remove it when you are done:
 
 ```powershell
-$env:OVX_PHONE_HOME_OPT_OUT = "1"
-# Launch your application from this shell.
+$env:NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED = "1"
+.\your-app.exe
+Remove-Item Env:NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED
 ```
+
+Exporting the variable in a shell (`export NVIDIA_OMNIVERSE_PRODUCT_TELEMETRY_DISABLED=1`), or setting it in a shell profile or in system environment settings, turns off telemetry for every process launched from that shell or account until you unset it. Use that only if you want that effect.
 
 Changing the environment variable from inside an already-running application is not a supported way to opt out. Use the programmatic control below instead, before the first context initialization.
 
